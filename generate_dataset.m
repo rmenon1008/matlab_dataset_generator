@@ -1,4 +1,4 @@
-DISPLAY = true;                    % Whether to display the scene in a figure
+DISPLAY = false;                    % Whether to display the scene in a figure
 
 % Enviornment params
 SCENE_PATH = "models/quarry.stl";
@@ -22,7 +22,6 @@ TX_POSITION = [100; 170];           % Meters
 RX_GRID_SPACING = 10.0;             % How far apart to sample the model surface (meters)
 MAX_RAYS = 100;                     % Maximum number of rays to save in the dataset per RX
                                     % (janky and should be variable but idk how with hdf5)
-
 % Output params
 OUTPUT_PATH = "dataset.h5";
 
@@ -36,10 +35,6 @@ tic;
 scene_mesh = stlread(SCENE_PATH);
 viewer = siteviewer("SceneModel",scene_mesh,"ShowOrigin",false, "SceneModelScale", SCENE_SCALE);
 viewer.Transparency = 1;
-
-if ~DISPLAY
-    viewer.close();
-end
 
 % Create the transmitter
 tx = txsite("cartesian","AntennaPosition",place_on_ground(TX_POSITION, scene_mesh, ANTENNA_HEIGHT));
