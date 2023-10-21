@@ -3,6 +3,7 @@ DISPLAY = false;                    % Whether to display the scene in a figure
 % Enviornment params
 SCENE_PATH = "models/quarry.stl";
 SCENE_SCALE = 1.0;                  % Scale such that 1 model unit = 1 meter
+SURFACE_MATERIAL = "concrete";      % brick, concrete, glass, metal, wood, etc.
 
 % Radio params
 CENTER_FREQ = 2.408e9;              % Hz
@@ -10,20 +11,21 @@ BANDWIDTH = 40e6;                   % Hz
 SUBCARRIERS = 128;                  % Number of subcarriers
 
 % Tracing params
-ANGULAR_SEPARATION = 10;            % low, medium or high (low means more rays)
-SURFACE_MATERIAL = "concrete";      % brick, concrete, glass, metal, wood, etc.
-MAX_REFLECTIONS = 3;                % Number of reflections to trace
+ANGULAR_SEPARATION = "high";        % low, medium or high (low means more rays)
+MAX_REFLECTIONS = 2;                % Number of reflections to trace
 MAX_DIFFRACTIONS = 1;               % Number of diffractions to trace
-MAX_ABSOLUTE_PATH_LOSS = 120;       % Discard rays below this threshold (dBm)
+MAX_ABSOLUTE_PATH_LOSS = 200;       % Discard rays below this threshold (dBm)
 
 % Sampling params
-ANTENNA_HEIGHT = 1.0;               % How far above the ground the antenna is (meters)
+ANTENNA_HEIGHT = 1.5;               % How far above the ground the antenna is (meters)
 TX_POSITION = [100; 170];           % Meters
-RX_GRID_SPACING = 10.0;             % How far apart to sample the model surface (meters)
+RX_GRID_SPACING = 0.50;             % How far apart to sample the model surface (meters)
+RX_GRID_AREA = [50, 150, ...
+                120, 220];          % Meters x1, x2, y1, y2 (set to [] to use the whole scene)
 MAX_RAYS = 100;                     % Maximum number of rays to save in the dataset per RX
                                     % (janky and should be variable but idk how with hdf5)
 % Output params
-OUTPUT_PATH = "dataset.h5";
+OUTPUT_PATH = "dataset_0_5m_spacing.h5";
 
 
 
@@ -36,7 +38,44 @@ scene_mesh = stlread(SCENE_PATH);
 viewer = siteviewer("SceneModel",scene_mesh,"ShowOrigin",false, "SceneModelScale", SCENE_SCALE);
 viewer.Transparency = 1;
 
+% Set up the RX positions
+disp("Placing receivers...");
+if isempty(RX_GRID_AREA)
+    bounds = find_xy_bounds(scene_mesh);
+else
+    bounds = RX_GRID_AREA;
+end
+x = bounds(1):RX_GRID_SPACING:bounds(2);
+y = bounds(3):RX_GRID_SPACING:bounds(4);
+rx_positions = zeros(3, length(x)*length(y));
+
+% Predict how long the dataset will take
+unit = "seconds";
+time = length(x)*length(y) * 0.36;
+if time > 60
+    time = time / 60;
+    unit = "minutes";
+end
+if time > 60
+    time = time / 60;
+    unit = "hours";
+end
+disp("Dataset generation should take about " + time + " " + unit + ".");
+
+% Get the 3D positions
+for i = 1:length(x)
+    for j = 1:length(y)
+        rx_positions(:, (i-1)*length(y) + j) = place_on_ground([x(i); y(j)], scene_mesh, ANTENNA_HEIGHT);
+    end
+end
+
+% Create the receivers
+disp("Creating RX sites...");
+disp("This step takes the longest for some reason...");
+rxs = rxsite("cartesian","AntennaPosition",rx_positions);
+
 % Create the transmitter
+disp("Creating TX site...");
 tx = txsite("cartesian","AntennaPosition",place_on_ground(TX_POSITION, scene_mesh, ANTENNA_HEIGHT));
 pm = propagationModel( ...
     "raytracing", ...
@@ -48,37 +87,16 @@ pm = propagationModel( ...
     "MaxAbsolutePathLoss", MAX_ABSOLUTE_PATH_LOSS ...
 );
 
-% Set up the RX positions
-disp("Placing receivers...");
-bounds = find_xy_bounds(scene_mesh);
-x = bounds(1):RX_GRID_SPACING:bounds(2);
-y = bounds(3):RX_GRID_SPACING:bounds(4);
-rx_positions = zeros(3, length(x)*length(y));
-for i = 1:length(x)
-    for j = 1:length(y)
-        rx_positions(:, (i-1)*length(y) + j) = place_on_ground([x(i); y(j)], scene_mesh, ANTENNA_HEIGHT);
-        if mod((i-1)*length(y) + j, 100) == 0
-            fprintf("Placed %d/%d receivers\n", (i-1)*length(y) + j, length(x)*length(y));
-        end
-    end
-end
-
-% Create the receivers
-disp("Creating RX sites...")
-disp("This step takes the longest for some reason...")
-rxs = rxsite("cartesian","AntennaPosition",rx_positions);
-
 if DISPLAY
     show(tx)
     show(rxs)
 end
 
 % Trace rays from TX to RX
-disp("Tracing rays...")
+disp("Tracing rays...");
 rays = raytrace(tx,rxs,pm);
 
-
-disp("Calculating signal data...")
+disp("Calculating signal data...");
 csis_mag = zeros(length(rxs), SUBCARRIERS);
 csis_phase = zeros(length(rxs), SUBCARRIERS);
 ray_num = zeros(length(rxs), 1);
@@ -87,6 +105,9 @@ ray_path_losses = zeros(length(rxs), MAX_RAYS);
 ray_aoas = zeros(length(rxs), 2, MAX_RAYS);
 ray_aods = zeros(length(rxs), 2, MAX_RAYS);
 
+% Get the frequencies of all the subcarriers
+fc = (CENTER_FREQ - BANDWIDTH/2) + (BANDWIDTH/SUBCARRIERS * (0:SUBCARRIERS-1));
+
 for i = 1:length(rxs)
     % Get the rays for this receiver
     this_rays = rays{1, i};
@@ -94,9 +115,6 @@ for i = 1:length(rxs)
     % Get the ray delays and amplitudes
     delays = [this_rays.PropagationDelay];
     amplitudes = dbm_to_watts(-[this_rays.PathLoss]);
-
-    % Get the frequencies of all the subcarriers
-    fc = (CENTER_FREQ - BANDWIDTH/2) + (BANDWIDTH/SUBCARRIERS * (0:SUBCARRIERS-1));
 
     % Calculate the channel freq response
     h = zeros(SUBCARRIERS,1);
@@ -110,7 +128,7 @@ for i = 1:length(rxs)
 
     % Record the other ray data
     if length(this_rays) > MAX_RAYS
-        disp("Warning: More than MAX_RAYS rays detected. Consider increasing.")
+        disp("Warning: More than MAX_RAYS rays detected. Consider increasing.");
         this_rays = this_rays(1:MAX_RAYS);
     end
 
@@ -125,12 +143,23 @@ for i = 1:length(rxs)
 end
 
 % Save the data
-disp("Saving data...")
+disp("Saving data...");
 
 % Delete the file if it already exists
 if isfile(OUTPUT_PATH)
-    disp("Warning: Output file already exists. Overwriting.")
+    disp("Warning: Output file already exists. Overwriting.");
     delete(OUTPUT_PATH);
+end
+
+% Plot the data from 10 RXs
+if DISPLAY
+    figure
+    starting_index = 0;
+    for i = 1:8
+        subplot(8, 1, i)
+        title("RX " + (rx_positions(:, starting_index + i)))
+        plot(csis_mag(starting_index + i, :))
+    end
 end
 
 % Write the CSI data
@@ -171,7 +200,7 @@ h5writeatt(OUTPUT_PATH, '/', 'rx_grid_spacing', RX_GRID_SPACING);
 
 % Print elapsed time
 toc;
-disp("Done!")
+disp("Done!");
 
 % Converts from dBm to Watts
 function watts = dbm_to_watts(dbm)
