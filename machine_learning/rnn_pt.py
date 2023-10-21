@@ -1,15 +1,21 @@
 import h5py
+import numpy as np
 import torch
 import torch.nn as nn
 from cprint import *
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+import platform
 
 # Specify the path to your HDF5 file
-hdf5_file_path = 'matlab_dataset_generator\dataset.h5' #'dataset.h5'
+if platform.system() == 'Windows':
+    hdf5_file_path = 'matlab_dataset_generator/dataset.h5'
+else:
+    hdf5_file_path = '../dataset.h5'
 
 # Open the HDF5 file for reading
 with h5py.File(hdf5_file_path, 'r') as file:
@@ -26,9 +32,9 @@ with h5py.File(hdf5_file_path, 'r') as file:
 csis_mag = torch.from_numpy(csis_mag)
 positions = torch.from_numpy(positions)
 
-cprint.info(f'position {positions[:,790]}')
-plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
-plt.show()
+# cprint.info(f'position {positions[:,790]}')
+# plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
+# plt.show()
 
 # Define the sequence length
 sequence_length = 10
@@ -110,6 +116,11 @@ sequence_length = 10
 learning_rate = 0.001
 num_epochs = 1000
 
+writer = SummaryWriter(f"runs/test")
+# writer.add_text(
+#     "hyperparameters",
+#     "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+
 # Create a simple RNN model
 model = SimpleRNN(input_size, hidden_size, num_layers, output_size)
 
@@ -132,19 +143,30 @@ for epoch in range(num_epochs):
     loss.backward()
     optimizer.step()
     
+    writer.add_scalar("losses/running_loss", loss.item(), i)
+
     if (epoch + 1) % 100 == 0:
         print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
 
 # To use the trained model for prediction, you can pass new sequences to the model:
 # new_input = torch.randn(1, sequence_length, input_size)
 new_input = split_sequences_tensor.T[torch.randint(0, split_sequences_tensor.T.shape[0], (1,)),:,:]
-# new_input = csis_mag[:,torch.randint(0, csis_mag.shape[1], (1,))]
 
-cprint.info(new_input)
-cprint.warn(new_input.shape)
-plt.plot(new_input.squeeze())
+# Prediction
 prediction = model(new_input.to(torch.float32))
 
-# plt.plot(prediction.detach().numpy())
+# Graphs
+new_input = new_input.squeeze()
+cprint.warn(new_input[9,:].shape)
+plt.plot(new_input[9,:])
 plt.show()
+
+prediction = prediction.detach().numpy()
 cprint.info(prediction)
+cprint.info(prediction.size)
+plt.plot(prediction.squeeze())
+plt.show()
+
+writer.close()
+
+# NOTE Run "tensorboard --logdir runs" to see results
