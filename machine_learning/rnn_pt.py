@@ -7,16 +7,31 @@ import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, MaxAbsScaler, RobustScaler
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 import platform
+
+np.set_printoptions(threshold=sys.maxsize)
 
 # Specify the path to your HDF5 file
 if platform.system() == 'Windows':
     hdf5_file_path = 'matlab_dataset_generator/dataset.h5'
 else:
     hdf5_file_path = '../dataset.h5'
+
+SCALE_DATASET = True
+
+# Value scaling function for feeding into nn
+def get_scaler(scaler):
+    scalers = {
+        "minmax": MinMaxScaler,
+        "standard": StandardScaler,
+        "maxabs": MaxAbsScaler,
+        "robust": RobustScaler,
+    }
+    return scalers.get(scaler.lower())()
 
 # Open the HDF5 file for reading
 with h5py.File(hdf5_file_path, 'r') as file:
@@ -29,13 +44,25 @@ with h5py.File(hdf5_file_path, 'r') as file:
     cprint.info(f'csis_mag {csis_mag.shape}')
     cprint.info(f'positions {positions.shape}')
 
-# Convert the NumPy array to a PyTorch tensor
-csis_mag = torch.from_numpy(csis_mag)
-positions = torch.from_numpy(positions)
+if SCALE_DATASET:
+    # cprint.info(csis_mag)
+    # Scale dataset
+    scaler = get_scaler('minmax')
+    csis_mag_scaled = scaler.fit_transform(csis_mag)
+    cprint(csis_mag_scaled[:,17:23])
 
-# cprint.info(f'position {positions[:,790]}')
-# plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
-# plt.show()
+    # Convert the NumPy array to a PyTorch tensor
+    csis_mag = torch.from_numpy(csis_mag)
+    positions = torch.from_numpy(positions)
+
+    # cprint.info(f'position {positions[:,790]}')
+    plt.figure(1)
+    # plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
+    plt.subplot(211)
+    plt.plot(np.arange(csis_mag_scaled.shape[0]), csis_mag_scaled[:,17:18])
+    plt.subplot(212)
+    plt.plot(np.arange(csis_mag.shape[0]), csis_mag[:,17:18])
+    plt.show()
 
 # Define the sequence length
 sequence_length = 10
@@ -58,10 +85,6 @@ split_sequences_tensor = torch.stack(split_sequences, dim=2).T
 
 # Split dataset into train, val and test
 X_train, X_val, y_train, y_val = train_test_split(split_sequences_tensor, range(split_sequences_tensor.shape[0]), train_size = 0.2, shuffle=False)
-cprint.warn(X_train.shape)
-cprint.warn(X_val.shape)
-cprint.warn(type(y_train))
-cprint.warn(y_val.shape)
 
 # Define a custom dataset class
 class MyDataset(Dataset):
