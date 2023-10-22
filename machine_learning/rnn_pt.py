@@ -6,6 +6,7 @@ from cprint import *
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from sklearn.model_selection import train_test_split
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
@@ -53,7 +54,14 @@ for i in range(num_sequences):
     split_sequences.append(sequence)
 
 # Convert 'split_sequences' to a PyTorch tensor if needed
-split_sequences_tensor = torch.stack(split_sequences, dim=2)
+split_sequences_tensor = torch.stack(split_sequences, dim=2).T
+
+# Split dataset into train, val and test
+X_train, X_val, y_train, y_val = train_test_split(split_sequences_tensor, range(split_sequences_tensor.shape[0]), train_size = 0.2, shuffle=False)
+cprint.warn(X_train.shape)
+cprint.warn(X_val.shape)
+cprint.warn(type(y_train))
+cprint.warn(y_val.shape)
 
 # Define a custom dataset class
 class MyDataset(Dataset):
