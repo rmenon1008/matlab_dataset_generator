@@ -11,3 +11,6 @@ slprj/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Mac OS X temporary files
+.DS_Store
