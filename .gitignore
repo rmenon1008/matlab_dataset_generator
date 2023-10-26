@@ -1,1 +1,13 @@
-**/runs
+runs/
+
+# MATLAB temporary files
+*.asv
+*.m~
+*.mex*
+slprj/
+.autosave
+
+# Python temporary files
+__pycache__/
+*.py[cod]
+*$py.class
