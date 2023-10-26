@@ -106,78 +106,77 @@ for i, batch in enumerate(train_dataloader, 0):
     # cprint.warn(type(batch))
     # cprint.info(batch[0].shape)
     # cprint.info(batch[1].shape)
-    cprint(f'Batch {i} has 
-           size {batch[0].shape[0]}')  # Check the batch size
+    cprint(f'Batch {i} has size {batch[0].shape[0]}')  # Check the batch size
 
-# # Define a simple RNN class
-# class RNN(nn.Module):
-#     def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
-#         super(RNN, self).__init__()
-#         self.hidden_size = hidden_size
-#         self.num_layers = num_layers
-#         self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_prob)
-#         self.fc = nn.Linear(hidden_size, output_size)
+# Define a simple RNN class
+class RNN(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
+        super(RNN, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_prob)
+        self.fc = nn.Linear(hidden_size, output_size)
 
-#     def forward(self, x):
-#         # Initialize hidden state with zeros
-#         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+    def forward(self, x):
+        # Initialize hidden state with zeros
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         
-#         # Forward pass through the RNN layer
-#         out, _ = self.rnn(x, h0)
+        # Forward pass through the RNN layer
+        out, _ = self.rnn(x, h0)
         
-#         # Reshape the output for the fully connected layer
-#         out = out[:, -1, :]
-#         out = self.fc(out)
-#         return out
+        # Reshape the output for the fully connected layer
+        out = out[:, -1, :]
+        out = self.fc(out)
+        return out
     
-# # Define a simple LSTM class
-# class LSTM(nn.Module):
-#     def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
-#         super(LSTM, self).__init__()
-#         self.hidden_size = hidden_size
-#         self.num_layers = num_layers
-#         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_prob)
-#         self.fc = nn.Linear(hidden_size, output_size)
+# Define a simple LSTM class
+class LSTM(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
+        super(LSTM, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_prob)
+        self.fc = nn.Linear(hidden_size, output_size)
 
-#     def forward(self, x):
-#         # Initialize hidden state with zeros
-#         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-#         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+    def forward(self, x):
+        # Initialize hidden state with zeros
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         
-#         # Forward pass through the LSTM layer
-#         out, _ = self.lstm(x, (h0, c0))
+        # Forward pass through the LSTM layer
+        out, _ = self.lstm(x, (h0, c0))
         
-#         # Reshape the output for the fully connected layer
-#         out = self.fc(out[:, -1, :])
-#         return out
+        # Reshape the output for the fully connected layer
+        out = self.fc(out[:, -1, :])
+        return out
     
-# # Define a simple GRU class
-# class GRU(nn.Module):
-#     def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
-#         super(GRU, self).__init__()
-#         self.hidden_size = hidden_size
-#         self.num_layers = num_layers
-#         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_prob)
-#         self.fc = nn.Linear(hidden_size, output_size)
+# Define a simple GRU class
+class GRU(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
+        super(GRU, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_prob)
+        self.fc = nn.Linear(hidden_size, output_size)
 
-#     def forward(self, x):
-#         # Initialize hidden state with zeros
-#         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+    def forward(self, x):
+        # Initialize hidden state with zeros
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         
-#         # Forward pass through the GRU layer
-#         out, _ = self.gru(x, h0)
+        # Forward pass through the GRU layer
+        out, _ = self.gru(x, h0)
         
-#         # Reshape the output for the fully connected layer
-#         out = self.fc(out[:, -1, :])
-#         return out
+        # Reshape the output for the fully connected layer
+        out = self.fc(out[:, -1, :])
+        return out
 
-# def get_model(model, model_params):
-#     models = {
-#         "rnn": RNN,
-#         "lstm": LSTM,
-#         "gru": GRU,
-#     }
-#     return models.get(model.lower())(**model_params)
+def get_model(model, model_params):
+    models = {
+        "rnn": RNN,
+        "lstm": LSTM,
+        "gru": GRU,
+    }
+    return models.get(model.lower())(**model_params)
 
 # Hyperparameters
 input_size = 128
@@ -204,9 +203,9 @@ writer = SummaryWriter(f"runs/test{model_type}_{num_epochs}_{num_layers}_{learni
 # Create a simple RNN model
 model = get_model(model_type, model_params)
 
-# # Loss and optimizer
-# criterion = nn.MSELoss()
-# optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+# Loss and optimizer
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 # Training loop
 model = model.float()
