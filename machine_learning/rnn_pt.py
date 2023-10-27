@@ -24,6 +24,7 @@ else:
 
 SCALE_DATASET = True
 SAVE_PATH = './models/model.pth'
+SAVE_PATH = './models/model.pth'
 
 # Value scaling function for feeding into nn
 def get_scaler(scaler):
@@ -194,11 +195,9 @@ model_params = {'input_size': input_size,
                 'num_layers' : num_layers,
                 'output_size' : output_size,
                 'dropout_prob' : dropout}
+
 current = datetime.datetime.now()
 writer = SummaryWriter(f"runs/test{model_type}_{num_epochs}_{num_layers}_{learning_rate}_{dropout}_{current.month}-{current.day}-{current.hour}-{current.minute}")
-# writer.add_text(
-#     "hyperparameters",
-#     "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
 
 # Create a simple RNN model
 model = get_model(model_type, model_params)
@@ -213,6 +212,7 @@ i = 0
 for epoch in range(num_epochs):
     running_train_loss = 0.0
     running_val_loss = 0
+
     for batch in train_dataloader:
         sequences, targets = batch
         # cprint.warn(sequences.shape)
@@ -244,9 +244,18 @@ for epoch in range(num_epochs):
         print(f'[{epoch + 1}, {num_epochs}] loss: {running_train_loss:.3f}')
         running_train_loss = 0.0
 
+        running_train_loss += loss.item()
+        writer.add_scalar("losses/running_train_loss", loss.item(), i)
+        i += 1
+
 for i in range(10):
     # To use the trained model for prediction, you can pass new sequences to the model:
     # new_input = torch.randn(1, sequence_length, input_size)
+    # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
+    rand = torch.randint(0, X_val.shape[0], (1,))
+    new_input = X_val[rand,:]
+    ground_truth = y_val[rand,:]
+    cprint.info(f'ground truth {ground_truth.shape}')
     # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
     rand = torch.randint(0, X_val.shape[0], (1,))
     new_input = X_val[rand,:]
@@ -267,6 +276,9 @@ for i in range(10):
     axs[2].set_title("CSI Reading 9")
 
     prediction = prediction.detach().numpy()
+    writer.add_figure(f'Comparison {i}', fig, global_step=0)
+    plt.close(fig)
+    # plt.show()
     cprint.info(f'Prediction {prediction.size}')
     axs[3].plot(ground_truth.squeeze())
     axs[3].set_title("Ground Truth")
