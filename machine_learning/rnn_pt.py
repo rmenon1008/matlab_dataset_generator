@@ -18,11 +18,13 @@ np.set_printoptions(threshold=sys.maxsize)
 
 # Specify the path to your HDF5 file
 if platform.system() == 'Windows':
-    hdf5_file_path = 'matlab_dataset_generator/dataset.h5'
+    hdf5_file_path = '..\dataset_0_5m_spacing.h5'
 else:
     hdf5_file_path = '../dataset_0_5m_spacing.h5'
 
 SCALE_DATASET = True
+SAVE_PATH = './models/model.pth'
+SAVE_PATH = './models/model.pth'
 
 # Value scaling function for feeding into nn
 def get_scaler(scaler):
@@ -42,8 +44,6 @@ with h5py.File(hdf5_file_path, 'r') as file:
     # Read the data into a NumPy array
     csis_mag = csis_mag[:]
     positions = positions[:]
-    cprint.info(f'csis_mag {csis_mag.shape}')
-    cprint.info(f'positions {positions.shape}')
 
 if SCALE_DATASET:
     # cprint.info(csis_mag)
@@ -69,6 +69,7 @@ if SCALE_DATASET:
 
 # Define the sequence length
 sequence_length = 10
+grid_length = int(np.sqrt(csis_mag_scaled.size(1)))
 
 # Calculate the number of sequences that can be obtained
 num_sequences = csis_mag_scaled.size(1) // sequence_length
@@ -78,10 +79,11 @@ split_sequences = []
 
 # Loop through the input tensor and split it into sequences
 for i in range(num_sequences):
-    start = i * sequence_length
-    end = (i + 1) * sequence_length
-    sequence = csis_mag_scaled[:, start:end]
-    split_sequences.append(sequence)
+    if i % grid_length < grid_length - sequence_length:
+        start = i * sequence_length
+        end = (i + 1) * sequence_length
+        sequence = csis_mag_scaled[:, start:end]
+        split_sequences.append(sequence)
 
 # Convert 'split_sequences' to a PyTorch tensor if needed
 split_sequences_tensor = torch.stack(split_sequences, dim=2).T
@@ -89,42 +91,23 @@ cprint.info(f'split_sequences_tensor {split_sequences_tensor.shape}')
 # Split dataset into train, val and test
 X_train, X_val, y_train, y_val = train_test_split(split_sequences_tensor[:,:9,:], split_sequences_tensor[:,9:10,:].squeeze(), train_size = 0.8, shuffle=False)
 
-# Define a custom dataset class
-class MyDataset(Dataset):
-    def __init__(self, data):
-        self.data = data  # data is a list of 10-element sequences
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, index):
-        sequence = self.data[index]
-        return sequence
-
-# # Create a sample dataset (you should replace this with your own data)
-# # Assuming 'split_sequences_tensor' from the previous example
-# data = split_sequences_tensor.T
-
-# # Initialize the custom dataset
-# dataset = MyDataset(data)
-
 train = TensorDataset(X_train, y_train)
-cprint.warn(f'y_train size {y_train.shape}')
-cprint.warn(f'X_train size {X_train.shape}')
+validate = TensorDataset(X_val, y_val)
 # Define hyperparameters
 batch_size = 100
 shuffle = True
 
 # Create a data loader
-dataloader = DataLoader(train, batch_size=batch_size, shuffle=shuffle)
+train_dataloader = DataLoader(train, batch_size=batch_size, shuffle=shuffle)
+validate_dataloader = DataLoader(validate, batch_size=batch_size, shuffle=shuffle)
 
 # Loop through the data using the data loader
-for i, batch in enumerate(dataloader, 0):
+for i, batch in enumerate(train_dataloader, 0):
     # 'batch' will contain a batch of 10-element sequences
     # cprint.warn(type(batch))
     # cprint.info(batch[0].shape)
     # cprint.info(batch[1].shape)
-    cprint(f'Batch {i} size {batch[0].shape[0]}')  # Check the batch size
+    cprint(f'Batch {i} has size {batch[0].shape[0]}')  # Check the batch size
 
 # Define a simple RNN class
 class RNN(nn.Module):
@@ -204,22 +187,20 @@ output_size = 128
 sequence_length = 9
 learning_rate = 0.0001
 dropout = .2
-num_epochs = 1000
+num_epochs = 10000
 batch_size = batch_size
-
+model_type = "rnn"
 model_params = {'input_size': input_size,
                 'hidden_size' : hidden_size,
                 'num_layers' : num_layers,
                 'output_size' : output_size,
                 'dropout_prob' : dropout}
+
 current = datetime.datetime.now()
-writer = SummaryWriter(f"runs/test{num_epochs}_{num_layers}_{learning_rate}_{dropout}_{current.month}-{current.day}-{current.hour}-{current.minute}")
-# writer.add_text(
-#     "hyperparameters",
-#     "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+writer = SummaryWriter(f"runs/test{model_type}_{num_epochs}_{num_layers}_{learning_rate}_{dropout}_{current.month}-{current.day}-{current.hour}-{current.minute}")
 
 # Create a simple RNN model
-model = get_model("RNN", model_params)
+model = get_model(model_type, model_params)
 
 # Loss and optimizer
 criterion = nn.MSELoss()
@@ -229,8 +210,10 @@ optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 model = model.float()
 i = 0
 for epoch in range(num_epochs):
-    running_loss = 0.0
-    for batch in dataloader:
+    running_train_loss = 0.0
+    running_val_loss = 0
+
+    for batch in train_dataloader:
         sequences, targets = batch
         # cprint.warn(sequences.shape)
         # cprint.warn(targets.shape)
@@ -242,39 +225,73 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # print statistics
-        running_loss += loss.item()
-        writer.add_scalar("losses/running_loss", loss.item(), i)
-        # if (epoch) % 100 == 99:
-        #     print(f'Epoch [{epoch}/{num_epochs}], Loss: {loss.item():.4f}')
-        if (i) % 100 == 99:    # print every 2000 mini-batches
-            print(f'[{epoch + 1}, {num_epochs}] loss: {running_loss:.3f}')
-            running_loss = 0.0
+
+        running_train_loss += loss.item()
+        writer.add_scalar("losses/running_train_loss", loss.item(), i)
+        i += 1
+
+    # model.eval()
+    # with torch.no_grad():
+    #     for batch in validate_dataloader:
+    #         sequences, targets = batch
+    #         outputs = model(sequences.float())
+    #         val_loss = criterion(outputs, targets.float()).item()
+    #         running_val_loss += val_loss
+    #         writer.add_scalar("losses/running_val_loss", val_loss, i)
+
+
+    if epoch % 100 == 99:
+        print(f'[{epoch + 1}, {num_epochs}] loss: {running_train_loss:.3f}')
+        running_train_loss = 0.0
+
+        running_train_loss += loss.item()
+        writer.add_scalar("losses/running_train_loss", loss.item(), i)
         i += 1
 
 for i in range(10):
     # To use the trained model for prediction, you can pass new sequences to the model:
     # new_input = torch.randn(1, sequence_length, input_size)
-    new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
-
+    # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
+    rand = torch.randint(0, X_val.shape[0], (1,))
+    new_input = X_val[rand,:]
+    ground_truth = y_val[rand,:]
+    cprint.info(f'ground truth {ground_truth.shape}')
+    # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
+    rand = torch.randint(0, X_val.shape[0], (1,))
+    new_input = X_val[rand,:]
+    ground_truth = y_val[rand,:]
+    cprint.info(f'ground truth {ground_truth.shape}')
     # Prediction
     prediction = model(new_input.to(torch.float32))
 
     # Graphs
-    fig, axs = plt.subplots(4)
+    fig, axs = plt.subplots(5)
     new_input = new_input.squeeze()
-    cprint.warn(new_input[9,:].shape)
-    axs[0].plot(new_input[7,:])
-    axs[1].plot(new_input[8,:])
-    axs[2].plot(new_input[9,:])
+    cprint.warn(f'validation shape {new_input[8,:].shape}')
+    axs[0].plot(new_input[6,:])
+    axs[0].set_title("CSI Reading 7")
+    axs[1].plot(new_input[7,:])
+    axs[1].set_title("CSI Reading 8")
+    axs[2].plot(new_input[8,:])
+    axs[2].set_title("CSI Reading 9")
 
     prediction = prediction.detach().numpy()
-    cprint.info(prediction)
-    cprint.info(prediction.size)
-    axs[3].plot(prediction.squeeze())
-    axs[3].set_title("Prediction")
-    plt.show()
+    writer.add_figure(f'Comparison {i}', fig, global_step=0)
+    plt.close(fig)
+    # plt.show()
+    cprint.info(f'Prediction {prediction.size}')
+    axs[3].plot(ground_truth.squeeze())
+    axs[3].set_title("Ground Truth")
+    axs[4].plot(prediction.squeeze())
+    axs[4].set_title("Prediction")
+
+    writer.add_figure(f'Comparison {i}', fig, global_step=0)
+    plt.close(fig)
+    # plt.show()
 
 writer.close()
 
-# NOTE Run "tensorboard --logdir runs" to see results
+# Save model
+torch.save(model, SAVE_PATH)
+
+# # NOTE Run "tensorboard --logdir runs" to see results
