@@ -4,6 +4,7 @@ import json
 import matplotlib.pyplot as plt
 import sys
 import os
+from typing import Callable
 
 def breesenham(x0, y0, x1, y1):
     """
@@ -104,7 +105,14 @@ class DatasetConsumer:
         d = dict(attributes)
         replace_np_array_with_list(d)
         return d
-
+    
+    # Scale data with passed function
+    def scale(self, scaler: Callable[[np.array], np.array], data: np.array) -> np.array:
+        return scaler(data)
+    
+    # Unwrap data with passed function
+    def unwrap(self, data: np.array, axis:int=0) -> np.array:
+        return np.unwrap(data, axis=axis)
 
     def print_info(self):
         print(json.dumps(self.attributes, indent=2))
@@ -150,6 +158,17 @@ class DatasetConsumer:
         csi_mags = np.swapaxes(csi_mags, 0, 1)
         csi_mags = np.swapaxes(csi_mags, 1, 2)
         return csi_mags
+    
+    def paths_to_dataset_phase_only(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 128)
+        """
+        # Use the indices to grab the CSI data for each point
+        csi_phases = self.csi_phases[:, path_indices]
+        csi_phases = np.swapaxes(csi_phases, 0, 1)
+        csi_phases = np.swapaxes(csi_phases, 1, 2)
+        return csi_phases
         
 
 # DATASET = 'dataset_0_5m_spacing.h5'
