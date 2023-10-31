@@ -1,7 +1,7 @@
-DISPLAY = false;                    % Whether to display the scene in a figure
+DISPLAY = true;                    % Whether to display the scene in a figure
 
 % Enviornment params
-SCENE_PATH = "models/quarry.stl";
+SCENE_PATH = "/Users/vibhasathishkumar/matlab_dataset_generator/models/quarry.stl";
 SCENE_SCALE = 1.0;                  % Scale such that 1 model unit = 1 meter
 
 % Radio params
@@ -10,7 +10,7 @@ BANDWIDTH = 40e6;                   % Hz
 SUBCARRIERS = 128;                  % Number of subcarriers
 
 % Tracing params
-ANGULAR_SEPARATION = 10;            % low, medium or high (low means more rays)
+ANGULAR_SEPARATION = 1;            % low, medium or high (low means more rays)
 SURFACE_MATERIAL = "concrete";      % brick, concrete, glass, metal, wood, etc.
 MAX_REFLECTIONS = 3;                % Number of reflections to trace
 MAX_DIFFRACTIONS = 1;               % Number of diffractions to trace

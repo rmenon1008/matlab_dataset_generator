@@ -9,7 +9,7 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 # Specify the path to your HDF5 file
-hdf5_file_path = 'matlab_dataset_generator\dataset.h5' #'dataset.h5'
+hdf5_file_path = '/Users/vibhasathishkumar/matlab_dataset_generator/dataset.h5' #matlab_dataset_generator\dataset.h5' #'dataset.h5'
 
 # Open the HDF5 file for reading
 with h5py.File(hdf5_file_path, 'r') as file:
@@ -27,7 +27,7 @@ csis_mag = torch.from_numpy(csis_mag)
 positions = torch.from_numpy(positions)
 
 cprint.info(f'position {positions[:,790]}')
-plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
+plt.plot(positions[0,:10], positions[1,:10],'.', color='b')
 plt.show()
 
 # Define the sequence length
@@ -63,7 +63,7 @@ class MyDataset(Dataset):
 
 # Create a sample dataset (you should replace this with your own data)
 # Assuming 'split_sequences_tensor' from the previous example
-data = split_sequences_tensor.T
+data = split_sequences_tensor.mT
 
 # Initialize the custom dataset
 dataset = MyDataset(data)
@@ -138,13 +138,29 @@ for epoch in range(num_epochs):
 # To use the trained model for prediction, you can pass new sequences to the model:
 # new_input = torch.randn(1, sequence_length, input_size)
 new_input = split_sequences_tensor.T[torch.randint(0, split_sequences_tensor.T.shape[0], (1,)),:,:]
-# new_input = csis_mag[:,torch.randint(0, csis_mag.shape[1], (1,))]
+# new_input = csis_mag[:,torch.randint(0, csis_mag.shape[1])]
 
-cprint.info(new_input)
-cprint.warn(new_input.shape)
-plt.plot(new_input.squeeze())
-prediction = model(new_input.to(torch.float32))
+# Prediction:
+# prediction = model(new_input.to(torch.float32))
+#prediction = model(new_input.to(torch.float32))
+
+# GRAPHS: 
+new_input = new_input.squeeze()
+cprint.warn(new_input[9,:].shape)
+plt.plot(new_input[9,:]) #    WHAT IS THIS PLOTING? 
+plt.show()
+
+# prediction = prediction.detach().numpy()
+# cprint.info(prediction)
+# cprint.info(prediction.size)
+# plt.plot(prediction.squeeze())
+# plt.show()
+
+# cprint.info(new_input)
+# cprint.warn(new_input.shape)
+# plt.plot(new_input.squeeze())
 
 # plt.plot(prediction.detach().numpy())
-plt.show()
-cprint.info(prediction)
+
+#plt.show()
+# cprint.info(prediction)
