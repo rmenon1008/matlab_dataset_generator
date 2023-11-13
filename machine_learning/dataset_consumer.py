@@ -169,6 +169,16 @@ class DatasetConsumer:
         csi_phases = np.swapaxes(csi_phases, 0, 1)
         csi_phases = np.swapaxes(csi_phases, 1, 2)
         return csi_phases
+    
+    def paths_to_dataset_positions(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 2)
+        """
+        # Use the indices to grab the positions for each point
+        positions = self.rx_positions[:, path_indices]
+        positions = np.swapaxes(positions, 0, 1)
+        return positions
         
 
 # DATASET = 'dataset_0_5m_spacing.h5'
