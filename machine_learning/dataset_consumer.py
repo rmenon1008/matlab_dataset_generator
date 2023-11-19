@@ -179,6 +179,25 @@ class DatasetConsumer:
         positions = self.rx_positions[:, path_indices]
         positions = np.swapaxes(positions, 0, 1)
         return positions
+    
+    def paths_to_dataset_interleaved(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 256)
+        """
+        # Get the magnitude and phase data
+        csi_mags = self.paths_to_dataset_mag_only(path_indices)
+        csi_phases = self.paths_to_dataset_phase_only(path_indices)
+
+        # Create a new array to hold the interleaved data
+        num_paths, path_length_n, _ = csi_mags.shape
+        interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
+
+        # Fill the new array with alternating slices from the two original arrays
+        interleaved[..., ::2] = csi_mags
+        interleaved[..., 1::2] = csi_phases
+
+        return interleaved
         
 
 # DATASET = 'dataset_0_5m_spacing.h5'

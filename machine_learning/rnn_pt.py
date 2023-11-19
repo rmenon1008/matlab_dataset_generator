@@ -21,7 +21,7 @@ np.set_printoptions(threshold=sys.maxsize)
 DEBUG = True
 SCALE_DATASET = True
 SAVE_PATH = './machine_learning/models/model.pth'
-NUM_PATHS = 500
+NUM_PATHS = 20000
 
 # Value scaling function for feeding into nn
 def get_scaler(scaler):

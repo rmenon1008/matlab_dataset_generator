@@ -24,15 +24,15 @@ y_test = torch.load('./machine_learning/models/y_test_rnn.pt')
 
 # Hyperparameters
 input_size = 128
-hidden_size = 64
-num_layers = 10
+hidden_size = 32
+num_layers = 5
 output_size = 128
 sequence_length = 9
 learning_rate = 0.001
 dropout = .2
 num_epochs = 100
 batch_size = X_test.shape[0]
-model_type = "lstm"
+model_type = "gru"
 model_params = {'input_size': input_size,
                 'hidden_size' : hidden_size,
                 'num_layers' : num_layers,
