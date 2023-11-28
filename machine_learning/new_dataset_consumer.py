@@ -1,0 +1,397 @@
+import h5py
+import numpy as np
+import json
+import matplotlib.pyplot as plt
+import sys
+import os
+from typing import Callable
+
+
+def breesenham(x0, y0, x1, y1):
+    """
+    Generate a line between two points using Breesenham's algorithm
+    Returns: a list of points (x, y) to create a straight line 
+    """
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    x, y = x0, y0
+    sx = -1 if x0 > x1 else 1
+    sy = -1 if y0 > y1 else 1
+    points = []
+    x_coor = []
+    y_coor = []
+    if dx > dy:
+        err = dx / 2.0
+        while x != x1:
+            points.append((x, y))
+            x_coor.append(x)
+            y_coor.append(y)
+            err -= dy
+            if err < 0:
+                y += sy
+                err += dx
+            x += sx
+    else:
+        err = dy / 2.0
+        while y != y1:
+            points.append((x, y))
+            x_coor.append(x)
+            y_coor.append(y)
+            err -= dx
+            if err < 0:
+                x += sx
+                err += dy
+            y += sy
+    points.append((x, y))
+    return ([points, x_coor, y_coor])
+
+# either can input steering angle and heading, or can find a way to generate it to get to a desired
+# end point, for now I'm going to set as an input. 
+
+def curveInRange(delta, s, theta,x, y, ptRange, L,dt):
+    """
+    Generate a curved line between two points using a method similar to car kinematics
+    Inputs: 
+        delta - steering angle (radians)
+        s     - speed
+        theta - car heading (radians)
+        x     - x coordinates of start and end points
+        y     - y coordinates of start and end points
+        range - the number of points we want to have
+        L     - Length of car (omitting this?)
+        dt    - time increment   
+    Returns: 2 lists, one with the (x, y) points to create the line, 
+        and another with the heading angles 
+    """
+    xvec = []
+    yvec = []
+    points = []
+    thetavec = []
+    for i in range(len(ptRange)):
+        dx = np.cos(theta) * s * dt
+        dy = np.sin(theta)* s *dt
+        dtheta = (s/L) * np.tan(delta) * dt
+        xnew = x + dx
+        ynew = y + dy
+        thetanew = theta + dtheta
+        thetanew = np.mod(thetanew,np.pi / 2) # Wrap theta at 2pi
+        xvec.append(xnew)
+        yvec.append(ynew)
+        points.append((xnew, ynew))
+        thetavec.append(thetanew)
+        x = xnew
+        y= ynew
+        theta = thetanew
+    
+    return([xvec, yvec, points, thetavec]) 
+
+
+def curve(delta, s, theta, x, y, L,dt):
+    """
+    Generate a curved line between two points using a method similar to car kinematics
+    Inputs: 
+        delta - steering angle (radians)
+        s     - speed
+        theta - car heading (radians)
+        x    - x coordinates of start and end points
+        y    - y coordinates of start and end points
+        L     - Length of car (omitting this? or could this be the grid size?)
+        dt    - time increment   
+    Returns: a list of points (x, y) to create the line 
+    """
+    dx = np.cos(theta) * s * dt
+    dy = np.sin(theta)*s*dt
+    dtheta = (s/L) * np.tan(delta) * dt
+    xnew = x + dx
+    ynew = y + dy
+    thetanew = theta + dtheta
+    thetanew = np.mod(thetanew,2.0*np.pi) # Wrap theta at 2pi
+    return([xnew,ynew,thetanew]) # just returns single points...
+
+########
+# A class to process positon and CSI (magnitude/phase) data. 
+# It initalizes the dataset and has methods to setup, pricess, generate, and display data
+# Private functions 
+    # init: get attributes as lists, csi mags & phases, and positions from an h5 file
+        # then find transmitter positions and grid size/spacing
+    # find_grid: Returns the grid_sizing and grid_spacing used to generate the data set
+    # real_to_grid: Finds the index of the grid where the given point is in
+    # grid_to_real_index: Converts the grid to a real index ____
+    # clean_attributes: Includes a function to recursively convert numpy arr to lists
+# Additional Functions included:
+    # scale: scales the data using a scalar function
+    # unwrap: unwraps a given array
+    # print_info: converts the object to json string
+    # generate_straight_paths: continually finds points on the grid until the number of 
+        # points is greater than or equal to the desired number of paths. 
+    # Generate torch datasets with the following functions: 
+        # paths_to_dataset_mag_only
+        # paths_to_dataset_phase_only
+        # paths_to_dataset_positions_only
+        # pats_to_dataset_interleaved: dataset for both magnitude and phases
+########
+
+class DatasetConsumer:
+    def __init__(self, dataset_path):
+        self.attributes = None
+        self.csi_mags = None
+        self.csi_phases = None
+        self.rx_positions = None
+
+        with h5py.File(dataset_path, 'r') as file:
+            self.attributes = self.__clean_attributes(file.attrs)
+            self.csi_mags = file['csis_mag'][:]
+            self.csi_phases = file['csis_phase'][:]
+            self.rx_positions = file['positions'][:]
+
+        self.tx_position = self.attributes['tx_position']
+        self.grid_size, self.grid_spacing = self.__find_grid(self.rx_positions)
+
+    def __find_grid(self, rx_positions):
+        # Find the grid size and spacing that was used to generate the dataset
+        
+        min_x = np.min(rx_positions[0, :])
+        max_x = np.max(rx_positions[0, :])
+        min_y = np.min(rx_positions[1, :])
+        max_y = np.max(rx_positions[1, :])
+        grid_bounds = (min_x, max_x, min_y, max_y)
+
+        grid_spacing = self.attributes['rx_grid_spacing']
+
+        return grid_bounds, grid_spacing
+    
+
+    def __real_to_grid(self, x, y):
+        # Find the index in the grid that the given point is in
+        # Return None if the point is not in the grid
+        if x < self.grid_size[0] or x > self.grid_size[1]:
+            return None
+        if y < self.grid_size[2] or y > self.grid_size[3]:
+            return None
+
+        x_index = int((x - self.grid_size[0]) / self.grid_spacing)
+        y_index = int((y - self.grid_size[2]) / self.grid_spacing)
+
+        return x_index, y_index
+    
+
+    def __grid_to_real_index(self, x, y):
+        # Find the real position of the given grid index
+        x_real = self.grid_size[0] + (x * self.grid_spacing)
+        y_real = self.grid_size[2] + (y * self.grid_spacing)
+
+        # Find the closest point in the rx_positions array
+        index = np.argmin(np.abs(self.rx_positions[0, :] - x_real) + np.abs(self.rx_positions[1, :] - y_real))
+        return index
+    
+
+    def __clean_attributes(self, attributes):
+        def replace_np_array_with_list(d):
+            for k, v in d.items():
+                if isinstance(v, np.ndarray):
+                    if v.size == 1:
+                        d[k] = v.item()
+                    else:
+                        d[k] = v.tolist()
+                elif isinstance(v, dict):
+                    replace_np_array_with_list(v)
+
+        d = dict(attributes)
+        replace_np_array_with_list(d)
+        return d
+    
+    # Scale data with passed function
+    def scale(self, scaler: Callable[[np.array], np.array], data: np.array) -> np.array:
+        return scaler(data)
+    
+    # Unwrap data with passed function
+    def unwrap(self, data: np.array, axis:int=0) -> np.array:
+        return np.unwrap(data, axis=axis)
+
+    def print_info(self):
+        print(json.dumps(self.attributes, indent=2))
+        
+
+    def generate_straight_paths(self, num_paths, path_length_n=20):
+        """
+        Generate straight paths in the rx_positions array.
+
+        num_paths: Number of paths to generate
+        path_length_n: Length of each path in number of points
+        """
+        print(f'Generating {num_paths} paths of length {path_length_n}')
+        
+        path_indices = np.zeros((num_paths, path_length_n), dtype=np.int32)
+        for i in range(num_paths):
+            while True:
+                # Grab two random points
+                point1 = np.random.randint(0, self.rx_positions.shape[1])
+                point2 = np.random.randint(0, self.rx_positions.shape[1])
+
+                # Generate a straight line between the two points
+                x0, y0 = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
+                x1, y1 = self.__real_to_grid(self.rx_positions[0, point2], self.rx_positions[1, point2])
+                [points, x_coor, y_coor] = breesenham(x0, y0, x1, y1)
+
+                # Make sure the path is at least path_length_n long
+                if len(points) < path_length_n:
+                    continue
+                path_indices[i] = [self.__grid_to_real_index(x, y) for x, y in points[:path_length_n]]
+                break
+        plt.plot(x_coor, y_coor, "green")
+        plt.show()
+        return path_indices
+    
+    def generate_curved_paths(self, num_paths, path_length_n=10, heading_angle_theta=0):
+        """
+        Generate curved paths in the rx_positions array. (currently not working as expected)
+
+        inputs:
+            num_paths: Number of paths to generate
+            path_length_n: Length of each path in number of points
+        output: An array with shape: (num_paths, path_length_n)
+
+        """
+        deg2rad = np.pi / 180.0
+        rad2deg = 180.0 / np.pi 
+        print(f'Generating {num_paths} paths of length {path_length_n}')
+        path_indices = np.zeros((num_paths, path_length_n), dtype=np.int32)
+        for i in range(num_paths):
+            while True:
+                # Grab two random points
+                point1 = np.random.randint(0, self.rx_positions.shape[1])
+                steering_angle_delta = np.random.randint(-5, 5)
+                print("steering angle: ")
+                print(steering_angle_delta)
+                # steering_angle_delta = rad2deg*np.arctan2(1,40)
+                # Generate a curved line between the two points
+                x, y = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
+                
+                # angles in radians
+                delta = steering_angle_delta * deg2rad
+                theta = heading_angle_theta * deg2rad
+                dt = 1 # this value is important! And changes the whole generated line!
+                range_of_points = np.arange(0,path_length_n,dt)
+                [x_coor, y_coor, points, thetas] = curveInRange(delta, 1, theta, x, y, range_of_points, 0.2, dt)
+
+                # Make sure the path is at least path_length_n long
+                # if len(points) < path_length_n:
+                #     continue
+                print("check: ")
+                path_indices[i] = [self.__grid_to_real_index(x, y) for x, y in points[:path_length_n]]
+                break
+        plt.plot(x_coor, y_coor, "green")
+        #plt.plot(path_indices, "blue")
+        plt.show()
+        return path_indices
+
+    def paths_to_dataset_mag_only(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 128)
+        """
+        # Use the indices to grab the CSI data for each point
+        csi_mags = self.csi_mags[:, path_indices]
+        csi_mags = np.swapaxes(csi_mags, 0, 1)
+        csi_mags = np.swapaxes(csi_mags, 1, 2)
+        return csi_mags
+    
+    def paths_to_dataset_phase_only(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 128)
+        """
+        # Use the indices to grab the CSI data for each point
+        csi_phases = self.csi_phases[:, path_indices]
+        csi_phases = np.swapaxes(csi_phases, 0, 1)
+        csi_phases = np.swapaxes(csi_phases, 1, 2)
+        return csi_phases
+    
+    def paths_to_dataset_positions(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 2)
+        """
+        # Use the indices to grab the positions for each point
+        positions = self.rx_positions[:, path_indices]
+        positions = np.swapaxes(positions, 0, 1)
+        return positions
+    
+    def paths_to_dataset_interleaved(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 256)
+        """
+        # Get the magnitude and phase data
+        csi_mags = self.paths_to_dataset_mag_only(path_indices)
+        csi_phases = self.paths_to_dataset_phase_only(path_indices)
+
+        # Create a new array to hold the interleaved data
+        num_paths, path_length_n, _ = csi_mags.shape
+        interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
+
+        # Fill the new array with alternating slices from the two original arrays
+        interleaved[..., ::2] = csi_mags
+        interleaved[..., 1::2] = csi_phases
+
+        return interleaved
+        
+
+# DATASET = 'dataset_0_5m_spacing.h5'  ## don't have access to this dataset
+# DATASET = 'older_ver/dataset.h5'
+# d = DatasetConsumer(DATASET)
+# d.print_info()
+# paths = d.generate_straight_paths(200)
+
+# dataset = d.paths_to_dataset_mag_only(paths)
+# print(dataset.shape)
+
+# pos = d.paths_to_dataset_positions(paths)
+# print(pos.shape)
+
+# plt.plot(pos[0],color='b')
+# plt.show()
+
+# these may need to be specified in someway:
+# deg2rad = np.pi / 180.0
+# rad2deg = 180.0 / np.pi
+# s = 1.0
+# delta = -5.0 * deg2rad
+# delta1 = 5.0 * deg2rad
+
+# x = 0.0
+# y = 0.0
+# theta = 0.0
+# ptRange = np.arange(0, 1, 0.2) # 0 to 10 with a step of 1 [0, 1, 2, 3,...,9]
+# L = 0.2
+# dt = .02
+# [x, y, pts, theta] = curveInRange(delta, s, theta,x, y, ptRange, L, dt)
+# [x1, y1, pts1, theta1] = curveInRange(delta1, s, theta,x, y, ptRange, L, dt)
+
+# plt.plot(x, y)
+
+# plt.plot(x1, y1)
+# plt.show()
+
+d = DatasetConsumer('older_ver/dataset.h5')
+d2 = DatasetConsumer('older_ver/dataset.h5')
+
+pathsL = d.generate_straight_paths(1)
+pathsC2 = d2.generate_curved_paths(1)
+
+line_pos = d.paths_to_dataset_positions(pathsL)
+curve_pos = d2.paths_to_dataset_positions(pathsC2)
+
+print("for the line: ")
+print(pathsL)
+print(line_pos)
+print("for the curve")
+print(pathsC2)
+print(curve_pos)
+
+plt.plot(line_pos[0][0], line_pos[0][1], color="green")
+plt.show()
+plt.plot(curve_pos[0][0],curve_pos[0][1], color="red")
+plt.show()
+
+
