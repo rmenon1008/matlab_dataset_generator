@@ -1,0 +1,18 @@
+runs/
+dataset_0_5m_spacing.h5
+dataset.h5
+
+# MATLAB temporary files
+*.asv
+*.m~
+*.mex*
+slprj/
+.autosave
+
+# Python temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Mac OS X temporary files
+.DS_Store

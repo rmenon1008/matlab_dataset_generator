@@ -74,7 +74,7 @@ def curveInRange(delta, s, theta,x, y, ptRange, L,dt):
         xnew = x + dx
         ynew = y + dy
         thetanew = theta + dtheta
-        thetanew = np.mod(thetanew,np.pi / 2) # Wrap theta at 2pi
+        thetanew = np.mod(thetanew,np.pi) # Wrap theta at 2pi
         xvec.append(xnew)
         yvec.append(ynew)
         points.append((xnew, ynew))
@@ -85,52 +85,23 @@ def curveInRange(delta, s, theta,x, y, ptRange, L,dt):
     
     return([xvec, yvec, points, thetavec]) 
 
-
-def curve(delta, s, theta, x, y, L,dt):
-    """
-    Generate a curved line between two points using a method similar to car kinematics
-    Inputs: 
-        delta - steering angle (radians)
-        s     - speed
-        theta - car heading (radians)
-        x    - x coordinates of start and end points
-        y    - y coordinates of start and end points
-        L     - Length of car (omitting this? or could this be the grid size?)
-        dt    - time increment   
-    Returns: a list of points (x, y) to create the line 
-    """
-    dx = np.cos(theta) * s * dt
-    dy = np.sin(theta)*s*dt
-    dtheta = (s/L) * np.tan(delta) * dt
-    xnew = x + dx
-    ynew = y + dy
-    thetanew = theta + dtheta
-    thetanew = np.mod(thetanew,2.0*np.pi) # Wrap theta at 2pi
-    return([xnew,ynew,thetanew]) # just returns single points...
-
 ########
 # A class to process positon and CSI (magnitude/phase) data. 
-# It initalizes the dataset and has methods to setup, pricess, generate, and display data
-# Private functions 
-    # init: get attributes as lists, csi mags & phases, and positions from an h5 file
-        # then find transmitter positions and grid size/spacing
-    # find_grid: Returns the grid_sizing and grid_spacing used to generate the data set
-    # real_to_grid: Finds the index of the grid where the given point is in
-    # grid_to_real_index: Converts the grid to a real index ____
-    # clean_attributes: Includes a function to recursively convert numpy arr to lists
-# Additional Functions included:
+# It initalizes the dataset and has methods to setup, process, generate, and display data
+# functions:
     # scale: scales the data using a scalar function
     # unwrap: unwraps a given array
     # print_info: converts the object to json string
-    # generate_straight_paths: continually finds points on the grid until the number of 
+    # generate_straight_paths: continually finds points on the dataset grid until the number of 
         # points is greater than or equal to the desired number of paths. 
+    # generate_curve_paths: uses a point and a steering angle to create a curved path and 
+        # and find points on the dataset grid
     # Generate torch datasets with the following functions: 
         # paths_to_dataset_mag_only
         # paths_to_dataset_phase_only
         # paths_to_dataset_positions_only
         # pats_to_dataset_interleaved: dataset for both magnitude and phases
 ########
-
 class DatasetConsumer:
     def __init__(self, dataset_path):
         self.attributes = None
@@ -149,7 +120,6 @@ class DatasetConsumer:
 
     def __find_grid(self, rx_positions):
         # Find the grid size and spacing that was used to generate the dataset
-        
         min_x = np.min(rx_positions[0, :])
         max_x = np.max(rx_positions[0, :])
         min_y = np.min(rx_positions[1, :])
@@ -173,7 +143,6 @@ class DatasetConsumer:
         y_index = int((y - self.grid_size[2]) / self.grid_spacing)
 
         return x_index, y_index
-    
 
     def __grid_to_real_index(self, x, y):
         # Find the real position of the given grid index
@@ -183,7 +152,6 @@ class DatasetConsumer:
         # Find the closest point in the rx_positions array
         index = np.argmin(np.abs(self.rx_positions[0, :] - x_real) + np.abs(self.rx_positions[1, :] - y_real))
         return index
-    
 
     def __clean_attributes(self, attributes):
         def replace_np_array_with_list(d):
@@ -238,11 +206,11 @@ class DatasetConsumer:
                     continue
                 path_indices[i] = [self.__grid_to_real_index(x, y) for x, y in points[:path_length_n]]
                 break
-        plt.plot(x_coor, y_coor, "green")
-        plt.show()
+        # plt.plot(x_coor, y_coor, "green")
+        # plt.show()
         return path_indices
     
-    def generate_curved_paths(self, num_paths, path_length_n=10, heading_angle_theta=0):
+    def generate_curved_paths(self, num_paths, path_length_n=20, heading_angle_theta=0):
         """
         Generate curved paths in the rx_positions array. (currently not working as expected)
 
@@ -258,30 +226,29 @@ class DatasetConsumer:
         path_indices = np.zeros((num_paths, path_length_n), dtype=np.int32)
         for i in range(num_paths):
             while True:
-                # Grab two random points
+                # Grab one random point within the size of the dataset 
                 point1 = np.random.randint(0, self.rx_positions.shape[1])
-                steering_angle_delta = np.random.randint(-5, 5)
+                print(point1)
+                # reducing randomness by setting 2 degrees
+                steering_angle_delta = 3 # np.random.randint(1, 5)
                 print("steering angle: ")
                 print(steering_angle_delta)
-                # steering_angle_delta = rad2deg*np.arctan2(1,40)
-                # Generate a curved line between the two points
-                x, y = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
-                
+
                 # angles in radians
                 delta = steering_angle_delta * deg2rad
                 theta = heading_angle_theta * deg2rad
-                dt = 1 # this value is important! And changes the whole generated line!
+                dt = 1 # this value can be changed, currently the time step is 1
+
+                # Generate a curved line between from random point and set angle
+                x, y = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
                 range_of_points = np.arange(0,path_length_n,dt)
                 [x_coor, y_coor, points, thetas] = curveInRange(delta, 1, theta, x, y, range_of_points, 0.2, dt)
 
                 # Make sure the path is at least path_length_n long
-                # if len(points) < path_length_n:
-                #     continue
-                print("check: ")
                 path_indices[i] = [self.__grid_to_real_index(x, y) for x, y in points[:path_length_n]]
                 break
-        plt.plot(x_coor, y_coor, "green")
-        #plt.plot(path_indices, "blue")
+
+        plt.plot(x_coor, y_coor,  "blue")
         plt.show()
         return path_indices
 
@@ -336,62 +303,25 @@ class DatasetConsumer:
 
         return interleaved
         
-
-# DATASET = 'dataset_0_5m_spacing.h5'  ## don't have access to this dataset
-# DATASET = 'older_ver/dataset.h5'
-# d = DatasetConsumer(DATASET)
-# d.print_info()
-# paths = d.generate_straight_paths(200)
-
-# dataset = d.paths_to_dataset_mag_only(paths)
-# print(dataset.shape)
-
-# pos = d.paths_to_dataset_positions(paths)
-# print(pos.shape)
-
-# plt.plot(pos[0],color='b')
-# plt.show()
-
-# these may need to be specified in someway:
-# deg2rad = np.pi / 180.0
-# rad2deg = 180.0 / np.pi
-# s = 1.0
-# delta = -5.0 * deg2rad
-# delta1 = 5.0 * deg2rad
-
-# x = 0.0
-# y = 0.0
-# theta = 0.0
-# ptRange = np.arange(0, 1, 0.2) # 0 to 10 with a step of 1 [0, 1, 2, 3,...,9]
-# L = 0.2
-# dt = .02
-# [x, y, pts, theta] = curveInRange(delta, s, theta,x, y, ptRange, L, dt)
-# [x1, y1, pts1, theta1] = curveInRange(delta1, s, theta,x, y, ptRange, L, dt)
-
-# plt.plot(x, y)
-
-# plt.plot(x1, y1)
-# plt.show()
-
+# PLOTTING RESULTS TO CHECK
 d = DatasetConsumer('older_ver/dataset.h5')
-d2 = DatasetConsumer('older_ver/dataset.h5')
 
-pathsL = d.generate_straight_paths(1)
-pathsC2 = d2.generate_curved_paths(1)
+pathsC2 = d.generate_curved_paths(1)
+curve_pos = d.paths_to_dataset_positions(pathsC2)
 
-line_pos = d.paths_to_dataset_positions(pathsL)
-curve_pos = d2.paths_to_dataset_positions(pathsC2)
-
-print("for the line: ")
-print(pathsL)
-print(line_pos)
-print("for the curve")
 print(pathsC2)
 print(curve_pos)
 
-plt.plot(line_pos[0][0], line_pos[0][1], color="green")
-plt.show()
-plt.plot(curve_pos[0][0],curve_pos[0][1], color="red")
+plt.plot(curve_pos[0][0], curve_pos[0][1], '.',color="red")
 plt.show()
 
+for i in range(10):
+    rand = np.random.randint(curve_pos.shape[0])
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(curve_pos[rand,0,:], curve_pos[rand,1,:], curve_pos[rand,2,:])
+    ax.set_xlim([0, 200])
+    ax.set_ylim([0, 200])
+    ax.set_zlim([-50, 50])
+    plt.show()
 
