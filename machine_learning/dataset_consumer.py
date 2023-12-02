@@ -208,7 +208,7 @@ class DatasetConsumer:
     def add_terminals_to_paths(self, path_indices, distance_from_end=1):
         """
         For each path, add a left and right terminal.
-        
+
         These are just added as the last two points in the path
         (left terminal is second to last, right terminal is last)
         """
@@ -241,17 +241,16 @@ class DatasetConsumer:
 
         return paths_with_terminals
         
-        
 
-DATASET = 'older_ver/dataset_0_5m_spacing.h5'
-d = DatasetConsumer(DATASET)
-d.print_info()
+# DATASET = 'older_ver/dataset_0_5m_spacing.h5'
+# d = DatasetConsumer(DATASET)
+# d.print_info()
 
-paths = d.generate_straight_paths(200)
-paths = d.add_terminals_to_paths(paths, distance_from_end=2)
-pos = d.paths_to_dataset_positions(paths)
+# paths = d.generate_straight_paths(200)
+# paths = d.add_terminals_to_paths(paths, distance_from_end=2)
+# pos = d.paths_to_dataset_positions(paths)
 
-# Plot the first 50 paths
-for i in range(50):
-    plt.plot(pos[i, 0, :], pos[i, 1, :])
-plt.show()
+# # Plot the first 50 paths
+# for i in range(50):
+#     plt.plot(pos[i, 0, :], pos[i, 1, :])
+# plt.show()
