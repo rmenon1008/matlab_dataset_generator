@@ -74,7 +74,7 @@ def curveInRange(delta, s, theta,x, y, ptRange, L,dt):
         xnew = x + dx
         ynew = y + dy
         thetanew = theta + dtheta
-        thetanew = np.mod(thetanew,np.pi) # Wrap theta at 2pi
+        thetanew = np.mod(thetanew,np.pi) # Wrap theta at pi
         xvec.append(xnew)
         yvec.append(ynew)
         points.append((xnew, ynew))
@@ -210,7 +210,7 @@ class DatasetConsumer:
         # plt.show()
         return path_indices
     
-    def generate_curved_paths(self, num_paths, path_length_n=20, heading_angle_theta=0):
+    def generate_curved_paths(self, num_paths, path_length_n=20):
         """
         Generate curved paths in the rx_positions array. (currently not working as expected)
 
@@ -228,11 +228,10 @@ class DatasetConsumer:
             while True:
                 # Grab one random point within the size of the dataset 
                 point1 = np.random.randint(0, self.rx_positions.shape[1])
-                print(point1)
+
                 # reducing randomness by setting 2 degrees
-                steering_angle_delta = 3 # np.random.randint(1, 5)
-                print("steering angle: ")
-                print(steering_angle_delta)
+                steering_angle_delta = np.random.uniform(-0.5, 0.5)
+                heading_angle_theta = np.random.uniform(0, 360)
 
                 # angles in radians
                 delta = steering_angle_delta * deg2rad
@@ -248,8 +247,8 @@ class DatasetConsumer:
                 path_indices[i] = [self.__grid_to_real_index(x, y) for x, y in points[:path_length_n]]
                 break
 
-        plt.plot(x_coor, y_coor,  "blue")
-        plt.show()
+        # plt.plot(x_coor, y_coor,  "blue")
+        # plt.show()
         return path_indices
 
     def paths_to_dataset_mag_only(self, path_indices):
@@ -304,24 +303,17 @@ class DatasetConsumer:
         return interleaved
         
 # PLOTTING RESULTS TO CHECK
-d = DatasetConsumer('older_ver/dataset.h5')
+d = DatasetConsumer('dataset_generation/dataset_0_5m_spacing.h5')
 
-pathsC2 = d.generate_curved_paths(1)
+pathsC2 = d.generate_curved_paths(50)
 curve_pos = d.paths_to_dataset_positions(pathsC2)
 
 print(pathsC2)
 print(curve_pos)
 
-plt.plot(curve_pos[0][0], curve_pos[0][1], '.',color="red")
-plt.show()
+plt.title("Positions")
 
-for i in range(10):
-    rand = np.random.randint(curve_pos.shape[0])
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(curve_pos[rand,0,:], curve_pos[rand,1,:], curve_pos[rand,2,:])
-    ax.set_xlim([0, 200])
-    ax.set_ylim([0, 200])
-    ax.set_zlim([-50, 50])
-    plt.show()
+for i in range(50):
+    plt.plot(curve_pos[i, 0, :], curve_pos[i, 1, :])
+plt.show()
 
