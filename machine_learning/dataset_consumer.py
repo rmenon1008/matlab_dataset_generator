@@ -89,6 +89,12 @@ class DatasetConsumer:
         # Find the closest point in the rx_positions array
         index = np.argmin(np.abs(self.rx_positions[0, :] - x_real) + np.abs(self.rx_positions[1, :] - y_real))
         return index
+
+
+    def __closest_real_index(self, x, y):
+        # Find the closest point in the rx_positions array
+        index = np.argmin(np.abs(self.rx_positions[0, :] - x) + np.abs(self.rx_positions[1, :] - y))
+        return index
     
 
     def __clean_attributes(self, attributes):
@@ -198,12 +204,54 @@ class DatasetConsumer:
         interleaved[..., 1::2] = csi_phases
 
         return interleaved
+
+    def add_terminals_to_paths(self, path_indices, distance_from_end=1):
+        """
+        For each path, add a left and right terminal.
+        
+        These are just added as the last two points in the path
+        (left terminal is second to last, right terminal is last)
+        """
+        num_paths, path_length_n = paths.shape
+        paths_with_terminals = np.empty((num_paths, path_length_n + 2), dtype=paths.dtype)
+        for i in range(num_paths):
+            # Add the base path
+            paths_with_terminals[i, :-2] = paths[i]
+
+            # Find the direction at the end of the path
+            last_point = self.rx_positions[:, paths[i, -1]]
+            second_to_last_point = self.rx_positions[:, paths[i, -4]]
+            direction = last_point - second_to_last_point
+            direction = direction / np.linalg.norm(direction)
+
+            left_direction = np.array([-direction[1], direction[0], 0])
+            right_direction = np.array([direction[1], -direction[0], 0])
+
+            # Find the left and right terminals
+            left_terminal = last_point + (left_direction * distance_from_end)
+            right_terminal = last_point + (right_direction * distance_from_end)
+
+            # Find the closest point in the rx_positions array
+            left_terminal_index = self.__closest_real_index(left_terminal[0], left_terminal[1])
+            right_terminal_index = self.__closest_real_index(right_terminal[0], right_terminal[1])
+
+            # Add the terminals to the path
+            paths_with_terminals[i, -2] = left_terminal_index
+            paths_with_terminals[i, -1] = right_terminal_index
+
+        return paths_with_terminals
+        
         
 
-# DATASET = 'dataset_0_5m_spacing.h5'
-# d = DatasetConsumer(DATASET)
-# d.print_info()
-# paths = d.generate_straight_paths(200)
+DATASET = 'older_ver/dataset_0_5m_spacing.h5'
+d = DatasetConsumer(DATASET)
+d.print_info()
 
-# dataset = d.paths_to_dataset_mag_only(paths)
-# print(dataset.shape)
+paths = d.generate_straight_paths(200)
+paths = d.add_terminals_to_paths(paths, distance_from_end=2)
+pos = d.paths_to_dataset_positions(paths)
+
+# Plot the first 50 paths
+for i in range(50):
+    plt.plot(pos[i, 0, :], pos[i, 1, :])
+plt.show()
