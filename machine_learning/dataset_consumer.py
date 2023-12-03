@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 from typing import Callable
+from cprint import *
 
 def breesenham(x0, y0, x1, y1):
     """
@@ -43,12 +44,14 @@ class DatasetConsumer:
         self.csi_mags = None
         self.csi_phases = None
         self.rx_positions = None
+        self.ray_aoas = None
 
         with h5py.File(dataset_path, 'r') as file:
             self.attributes = self.__clean_attributes(file.attrs)
             self.csi_mags = file['csis_mag'][:]
             self.csi_phases = file['csis_phase'][:]
             self.rx_positions = file['positions'][:]
+            self.ray_aoas = file['ray_aoas'][:]
 
         self.tx_position = self.attributes['tx_position']
         self.grid_size, self.grid_spacing = self.__find_grid(self.rx_positions)
@@ -116,9 +119,17 @@ class DatasetConsumer:
     def scale(self, scaler: Callable[[np.array], np.array], data: np.array) -> np.array:
         return scaler(data)
     
+    # Descale data with passed function
+    def descale(self, scaler: Callable[[np.array], np.array], data: np.array) -> np.array:
+        return scaler(data)
+    
     # Unwrap data with passed function
     def unwrap(self, data: np.array, axis:int=0) -> np.array:
         return np.unwrap(data, axis=axis)
+    
+    # Convert angles to trigonometric form
+    def to_trig(self, data: np.array) -> np.array:
+        return np.array([np.cos(data * 2 * np.pi / 360), np.sin(data * 2 * np.pi / 360)])
 
     def print_info(self):
         print(json.dumps(self.attributes, indent=2))
@@ -176,6 +187,35 @@ class DatasetConsumer:
         csi_phases = np.swapaxes(csi_phases, 1, 2)
         return csi_phases
     
+    def paths_to_dataset_rays_aoas(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, num_rays)
+        """
+        # Use the indices to grab the positions for each point
+        cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
+        return self.ray_aoas.T[path_indices, 0, :], self.ray_aoas.T[path_indices, 1, :]
+    
+    def paths_to_dataset_rays_aoas_trig(self, path_indices, pad = 0):
+        """
+        Generate a torch dataset from the given path indices
+        """
+        # Use the indices to grab the positions for each point
+        cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
+        azimuth_cos = np.cos(self.ray_aoas.T[:, 0, :] * 2* np.pi / 360)
+        azimuth_cos = np.pad(azimuth_cos, ((0,0), (0,pad)))
+        azimuth_sin = np.sin(self.ray_aoas.T[:, 0, :] * 2* np.pi / 360)
+        azimuth_sin = np.pad(azimuth_sin, ((0,0), (0,pad)))
+        elevation_cos = np.cos(self.ray_aoas.T[:, 1, :] * 2* np.pi / 360)
+        elevation_cos = np.pad(elevation_cos, ((0,0), (0,pad)))
+        elevation_sin = np.sin(self.ray_aoas.T[:, 1, :] * 2* np.pi / 360)
+        elevation_sin = np.pad(elevation_sin, ((0,0), (0,pad)))
+        cprint.info(f'azimuth_cos.shape {azimuth_cos.shape}')
+        cprint.info(f'azimuth_sin.shape {azimuth_sin.shape}')
+        cprint.info(f'elevation_cos.shape {elevation_cos.shape}')
+        cprint.info(f'elevation_sin.shape {elevation_sin.shape}')
+        return np.array([azimuth_cos[path_indices, :], azimuth_sin[path_indices, :], elevation_cos[path_indices, :], elevation_sin[path_indices, :]])
+
     def paths_to_dataset_positions(self, path_indices):
         """
         Generate a torch dataset from the given path indices
@@ -195,6 +235,7 @@ class DatasetConsumer:
         csi_mags = self.paths_to_dataset_mag_only(path_indices)
         csi_phases = self.paths_to_dataset_phase_only(path_indices)
 
+
         # Create a new array to hold the interleaved data
         num_paths, path_length_n, _ = csi_mags.shape
         interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
@@ -204,7 +245,62 @@ class DatasetConsumer:
         interleaved[..., 1::2] = csi_phases
 
         return interleaved
+    
+    # def paths_to_dataset_interleaved_padded(self, path_indices):
+    #     """
+    #     Generate a numpy dataset from the given path indices
+    #     Shape: (num_paths, path_length_n, 384)
+    #     """
+    #     # Get the magnitude, phase, and rays_aoas_trig data
+    #     csi_mags = self.paths_to_dataset_mag_only(path_indices)
+    #     csi_phases = self.paths_to_dataset_phase_only(path_indices)
+    #     rays_aoas_trig = self.paths_to_dataset_rays_aoas_trig(path_indices)
+    #     cprint.warn(f'csi_mags.shape {csi_mags.shape}')
+    #     cprint.warn(f'rays_aoas_trig.shape {rays_aoas_trig.shape}')
+    #     # Find the maximum length
+    #     max_length = max(csi_mags.shape[-1], csi_phases.shape[-1], rays_aoas_trig.shape[-1])
 
+    #     # Pad the arrays to match the maximum length
+    #     csi_mags = np.pad(csi_mags, ((0,0), (0,0), (0, max_length - csi_mags.shape[-1])))
+    #     csi_phases = np.pad(csi_phases, ((0,0), (0,0), (0, max_length - csi_phases.shape[-1])))
+    #     rays_aoas_trig = np.pad(rays_aoas_trig, ((0,0), (0,0), (0, max_length - rays_aoas_trig.shape[-1])))
+
+    #     # Interleave the arrays
+    #     interleaved = np.empty((csi_mags.shape[0], csi_mags.shape[1], 3 * max_length))
+    #     interleaved[..., ::3] = csi_mags
+    #     interleaved[..., 1::3] = csi_phases
+    #     interleaved[..., 2::3] = rays_aoas_trig
+
+    #     return interleaved
+
+    def paths_to_dataset_interleaved_w_rays(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 256)
+        """
+        # Get the magnitude and phase data
+        csi_mags = self.paths_to_dataset_mag_only(path_indices)
+        csi_phases = self.paths_to_dataset_phase_only(path_indices)
+
+
+        # Create a new array to hold the interleaved data
+        num_paths, path_length_n, _ = csi_mags.shape
+        interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
+
+        # Fill the new array with alternating slices from the two original arrays
+        interleaved[..., ::2] = csi_mags
+        interleaved[..., 1::2] = csi_phases
+        
+        interleaved_all = np.empty((num_paths, path_length_n, 656), dtype=csi_mags.dtype)
+        interleaved_all[..., :256] = interleaved
+        rays_aoas_trig = self.paths_to_dataset_rays_aoas_trig(path_indices)
+        interleaved_all[..., 256:356] = rays_aoas_trig[0,:,:,:]
+        interleaved_all[..., 356:456] = rays_aoas_trig[1,:,:,:]
+        interleaved_all[..., 456:556] = rays_aoas_trig[2,:,:,:]
+        interleaved_all[..., 556:656] = rays_aoas_trig[3,:,:,:]
+        cprint.warn(f'interleaved_all.shape {interleaved_all.shape}')
+        return interleaved_all
+        
     def add_terminals_to_paths(self, path_indices, distance_from_end=1):
         """
         For each path, add a left and right terminal.
@@ -240,8 +336,7 @@ class DatasetConsumer:
             paths_with_terminals[i, -1] = right_terminal_index
 
         return paths_with_terminals
-        
-
+    
 # DATASET = 'older_ver/dataset_0_5m_spacing.h5'
 # d = DatasetConsumer(DATASET)
 # d.print_info()

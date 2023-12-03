@@ -21,7 +21,7 @@ np.set_printoptions(threshold=sys.maxsize)
 DEBUG = True
 SCALE_DATASET = True
 SAVE_PATH = './machine_learning/models/model.pth'
-NUM_PATHS = 20000
+NUM_PATHS = 50000
 
 # Value scaling function for feeding into nn
 def get_scaler(scaler):
@@ -42,6 +42,8 @@ scaler = get_scaler('minmax')
 d.csi_mags = d.scale(scaler.fit_transform, d.csi_mags)
 cprint.info(f'd.csi_mags.shape {d.csi_mags.shape}')
 d.csi_phases = d.unwrap(d.csi_phases)
+scaler_phase = get_scaler('minmax')
+d.csi_phases = d.scale(scaler.fit_transform, d.csi_phases)
 paths = d.generate_straight_paths(NUM_PATHS, 10)
 dataset_mag = d.paths_to_dataset_mag_only(paths)
 dataset_phase = d.paths_to_dataset_phase_only(paths)
@@ -65,7 +67,7 @@ cprint(f"dataset_interleaved.shape {dataset_interleaved.shape}")
 
 # # Check 10 random CSI readings in dataset
 # if DEBUG:
-#     for i in range(1):
+#     for i in range(10):
 #         rand1 = np.random.randint(dataset_mag.shape[0])
 #         rand2 = np.random.randint(dataset_mag.shape[1])
 #         # cprint.info(f'position {positions[:,790]}')
@@ -90,7 +92,7 @@ train = TensorDataset(X_train, y_train)
 validate = TensorDataset(X_val, y_val)
 test = TensorDataset(X_test, y_test)
 # Define hyperparameters
-batch_size = 100
+batch_size = 10000
 shuffle = True
 
 # Create a data loader
@@ -117,7 +119,7 @@ hidden_size = 64
 num_layers = 5
 output_size = 128
 sequence_length = 9
-learning_rate = 0.01
+learning_rate = 0.005
 dropout = .2
 num_epochs = 100
 batch_size = batch_size
@@ -137,6 +139,12 @@ model = get_model(model_type, model_params)
 # Loss and optimizer
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+# Learning rate adjustment
+# decay_lr_lambda = lambda epoch: 0.2 if optimizer.param_groups[0]['lr'] < 0.0001 else 0.915 ** (epoch // 5)
+# scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=decay_lr_lambda)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.5, verbose=True)
+
 
 # Training loop
 model = model.float()
@@ -173,37 +181,40 @@ for epoch in range(num_epochs):
         print(f'[{epoch + 1}, {num_epochs}] loss: {running_train_loss:.3f}')
         running_train_loss = 0.0
 
+    writer.add_scalar("learning_rate", optimizer.param_groups[0]['lr'], i)
+    scheduler.step(val_loss.item())
+
 # Save test dataset tensors
 torch.save(X_test, f'./machine_learning/models/X_test_{model_type}.pt')
 torch.save(y_test, f'./machine_learning/models/y_test_{model_type}.pt')
 
-# Run Test dataset
-model.eval()
+# # Run Test dataset
+# model.eval()
 
-test_loss = 0.0  # Initialize the test loss
-total_samples = 0  # Total samples in the test dataset
+# test_loss = 0.0  # Initialize the test loss
+# total_samples = 0  # Total samples in the test dataset
 
-for i, batch in enumerate(test_dataloader, 0):  # Assuming you have a DataLoader for the test dataset
-    sequences, targets = batch  # Get input sequences and their targets
+# for i, batch in enumerate(test_dataloader, 0):  # Assuming you have a DataLoader for the test dataset
+#     sequences, targets = batch  # Get input sequences and their targets
 
-    with torch.no_grad():
-        outputs = model(sequences.float())  # Make predictions
+#     with torch.no_grad():
+#         outputs = model(sequences.float())  # Make predictions
 
-    loss = criterion(outputs, targets)  # Calculate the loss
-    writer.add_scalar("losses/running_test_loss", loss.item(), i)
-    test_loss += loss.item()
-    total_samples += 1
+#     loss = criterion(outputs, targets)  # Calculate the loss
+#     writer.add_scalar("losses/running_test_loss", loss.item(), i)
+#     test_loss += loss.item()
+#     total_samples += 1
 
-# Calculate the average test loss
-average_test_loss = test_loss / total_samples
+# # Calculate the average test loss
+# average_test_loss = test_loss / total_samples
 
-# Optionally, calculate and print other evaluation metrics if needed
-print(f"Average Test Loss: {average_test_loss:.4f}")
+# # Optionally, calculate and print other evaluation metrics if needed
+# print(f"Average Test Loss: {average_test_loss:.4f}")
 
 
 if DEBUG:
     # Sanity check
-    for i in range(10):
+    for i in range(3):
         # To use the trained model for prediction, you can pass new sequences to the model:
         # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
         rand = torch.randint(0, X_test.shape[0], (1,))
@@ -250,6 +261,10 @@ if DEBUG:
 writer.close()
 # Save model
 torch.save(model.state_dict(), SAVE_PATH)
+
+# Final learning rate
+final_learning_rate = optimizer.param_groups[0]['lr']
+cprint.ok(f'Final learning rate {final_learning_rate}')
 
 
 # # NOTE Run "tensorboard --logdir runs" to see results

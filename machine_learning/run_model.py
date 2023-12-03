@@ -18,9 +18,11 @@ def get_model(model, model_params):
     }
     return models.get(model.lower())(**model_params)
 
+model_type = "gru"
+
 # Load test data
-X_test = torch.load('./machine_learning/models/X_test_rnn.pt')
-y_test = torch.load('./machine_learning/models/y_test_rnn.pt')
+X_test = torch.load(f'./machine_learning/models/X_test_{model_type}.pt')
+y_test = torch.load(f'./machine_learning/models/y_test_{model_type}.pt')
 
 # Hyperparameters
 input_size = 128
@@ -28,11 +30,10 @@ hidden_size = 32
 num_layers = 5
 output_size = 128
 sequence_length = 9
-learning_rate = 0.001
+learning_rate = 0.005
 dropout = .2
 num_epochs = 100
 batch_size = X_test.shape[0]
-model_type = "gru"
 model_params = {'input_size': input_size,
                 'hidden_size' : hidden_size,
                 'num_layers' : num_layers,
@@ -75,14 +76,10 @@ for i in range(5):
         # To use the trained model for prediction, you can pass new sequences to the model:
         # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
         rand = torch.randint(0, X_test.shape[0], (1,))
-        cprint.info(f'rand {rand}')
         new_input = X_test[rand,:]
         ground_truth = y_test[rand,:]
-        cprint.info(f'new input {new_input}')
-        cprint.info(f'ground truth {ground_truth.shape}')
         # Prediction
         prediction = model(new_input.to(torch.float32))
-        cprint.info(f'prediction {prediction}')
 
         # Graphs
         fig, axs = plt.subplots(5)
