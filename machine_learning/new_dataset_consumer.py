@@ -209,7 +209,7 @@ class DatasetConsumer:
         # plt.show()
         return path_indices
     
-    def generate_curved_paths(self, num_paths, path_length_n=20, heading_angle_theta=0):
+    def generate_curved_paths(self, num_paths, path_length_n=20):
         """
         Generate curved paths in the rx_positions array. (currently not working as expected)
 
@@ -256,6 +256,58 @@ class DatasetConsumer:
         # plt.plot(x_coor, y_coor,  "blue")
         # plt.show()
         return path_indices
+    
+    def generate_left_right_curves(self, num_paths, path_length_n=20, heading_angle_theta=0):
+        """
+        Generate curved paths in the rx_positions array. (currently not working as expected)
+
+        inputs:
+            num_paths: Number of paths to generate
+            path_length_n: Length of each path in number of points
+        output: An array with shape: (num_paths, path_length_n)
+
+        """
+        # generate a curved path to the left, and to the right (so pos and neg steering angle)
+        deg2rad = np.pi / 180.0
+        rad2deg = 180.0 / np.pi 
+        print(f'Generating {num_paths} paths of length {path_length_n}')
+        path_indices_1 = np.zeros((num_paths, path_length_n), dtype=np.int32)
+        path_indices_2 = np.zeros((num_paths, path_length_n), dtype=np.int32)
+        for i in range(num_paths):
+            while True:
+                # Grab one random point within the size of the dataset 
+                point1 = np.random.randint(0, self.rx_positions.shape[1])
+                print(point1)
+                # reducing randomness by setting 2 degrees
+                steering_angle_delta = np.random.uniform(-0.5, 0.5)
+                heading_angle_theta = np.random.uniform(0, 360)
+
+                # angles in radians
+                delta = steering_angle_delta * deg2rad
+                theta = heading_angle_theta * deg2rad
+                dt = 1 # this value can be changed, currently the time step is 1
+
+                # Generate a curved line between from random point and set angle
+                x, y = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
+                range_of_points = np.arange(0,path_length_n,dt)
+                [x_coor, y_coor, points_curve1, thetas] = curveInRange(delta, 1, theta, x, y, range_of_points, 0.2, dt)
+                [x_coor, y_coor, points_curve2, thetas] = curveInRange(-1*delta, 1, theta, x, y, range_of_points, 0.2, dt)
+               
+                # Check if all the points are within the grid bounds
+                ep = 10
+                if np.any(np.array(x_coor) < self.grid_size[0] + ep) or np.any(np.array(x_coor) > self.grid_size[1] - ep):
+                    continue
+                if np.any(np.array(y_coor) < self.grid_size[2] + ep) or np.any(np.array(y_coor) > self.grid_size[3] - ep):
+                    continue
+
+                # Make sure the path is at least path_length_n long
+                path_indices_1[i] = [self.__grid_to_real_index(x, y) for x, y in points_curve1[:path_length_n]]
+                path_indices_2[i] = [self.__grid_to_real_index(x, y) for x, y in points_curve2[:path_length_n]]
+                break
+
+        # plt.plot(x_coor, y_coor,  "blue")
+        # plt.show()
+        return path_indices_1, path_indices_2
     
     def paths_to_dataset_mag_only(self, path_indices):
         """
@@ -312,16 +364,21 @@ class DatasetConsumer:
 d = DatasetConsumer('dataset_generation/dataset_0_5m_spacing.h5')
 # d = DatasetConsumer('older_ver/dataset.h5')
 
-pathsC2 = d.generate_curved_paths(70)
-curve_pos = d.paths_to_dataset_positions(pathsC2)
+#paths_curved = d.generate_curved_paths(70)
+#curve_pos = d.paths_to_dataset_positions(paths_curved)
+
+paths_curved_1, paths_curved_2 = d.generate_left_right_curves(10)
+curve_1_pos = d.paths_to_dataset_positions(paths_curved_1)
+curve_2_pos = d.paths_to_dataset_positions(paths_curved_2)
 
 # print(pathsC2.shape)
 # print(curve_pos.shape)
 
 plt.title("Positions")
 
-for i in range(70):
-    plt.plot(curve_pos[i, 0, :], curve_pos[i, 1, :])
+for i in range(10):
+    plt.plot(curve_1_pos[i, 0, :], curve_1_pos[i, 1, :],color="blue")
+    plt.plot(curve_2_pos[i, 0, :], curve_2_pos[i, 1, :],color="green")
 plt.show()
 
 # for i in range(10):
