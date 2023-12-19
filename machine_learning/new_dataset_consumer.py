@@ -45,10 +45,7 @@ def breesenham(x0, y0, x1, y1):
     points.append((x, y))
     return ([points, x_coor, y_coor])
 
-# either can input steering angle and heading, or can find a way to generate it to get to a desired
-# end point, for now I'm going to set as an input. 
-
-def curveInRange(delta, s, theta,x, y, ptRange, L,dt):
+def curveInRange(delta, s, theta,x, y, range_of_points, L,dt):
     """
     Generate a curved line between two points using a method similar to car kinematics
     Inputs: 
@@ -67,7 +64,7 @@ def curveInRange(delta, s, theta,x, y, ptRange, L,dt):
     yvec = []
     points = []
     thetavec = []
-    for i in range(len(ptRange)):
+    for i in range(len(range_of_points)):
         dx = np.cos(theta) * s * dt
         dy = np.sin(theta)* s *dt
         dtheta = (s/L) * np.tan(delta) * dt
@@ -82,7 +79,9 @@ def curveInRange(delta, s, theta,x, y, ptRange, L,dt):
         x = xnew
         y= ynew
         theta = thetanew
-    
+    # print(f"Generated Points: {points}")
+    # print(f"Generated Angles: {thetavec}")
+
     return([xvec, yvec, points, thetavec]) 
 
 ########
@@ -210,7 +209,7 @@ class DatasetConsumer:
         # plt.show()
         return path_indices
     
-    def generate_curved_paths(self, num_paths, path_length_n=20):
+    def generate_curved_paths(self, num_paths, path_length_n=20, heading_angle_theta=0):
         """
         Generate curved paths in the rx_positions array. (currently not working as expected)
 
@@ -228,7 +227,7 @@ class DatasetConsumer:
             while True:
                 # Grab one random point within the size of the dataset 
                 point1 = np.random.randint(0, self.rx_positions.shape[1])
-
+                print(point1)
                 # reducing randomness by setting 2 degrees
                 steering_angle_delta = np.random.uniform(-0.5, 0.5)
                 heading_angle_theta = np.random.uniform(0, 360)
@@ -242,6 +241,13 @@ class DatasetConsumer:
                 x, y = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
                 range_of_points = np.arange(0,path_length_n,dt)
                 [x_coor, y_coor, points, thetas] = curveInRange(delta, 1, theta, x, y, range_of_points, 0.2, dt)
+                
+                # Check if all the points are within the grid bounds
+                ep = 10
+                if np.any(np.array(x_coor) < self.grid_size[0] + ep) or np.any(np.array(x_coor) > self.grid_size[1] - ep):
+                    continue
+                if np.any(np.array(y_coor) < self.grid_size[2] + ep) or np.any(np.array(y_coor) > self.grid_size[3] - ep):
+                    continue
 
                 # Make sure the path is at least path_length_n long
                 path_indices[i] = [self.__grid_to_real_index(x, y) for x, y in points[:path_length_n]]
@@ -250,7 +256,7 @@ class DatasetConsumer:
         # plt.plot(x_coor, y_coor,  "blue")
         # plt.show()
         return path_indices
-
+    
     def paths_to_dataset_mag_only(self, path_indices):
         """
         Generate a torch dataset from the given path indices
@@ -304,16 +310,26 @@ class DatasetConsumer:
         
 # PLOTTING RESULTS TO CHECK
 d = DatasetConsumer('dataset_generation/dataset_0_5m_spacing.h5')
+# d = DatasetConsumer('older_ver/dataset.h5')
 
-pathsC2 = d.generate_curved_paths(50)
+pathsC2 = d.generate_curved_paths(70)
 curve_pos = d.paths_to_dataset_positions(pathsC2)
 
-print(pathsC2)
-print(curve_pos)
+# print(pathsC2.shape)
+# print(curve_pos.shape)
 
 plt.title("Positions")
 
-for i in range(50):
+for i in range(70):
     plt.plot(curve_pos[i, 0, :], curve_pos[i, 1, :])
 plt.show()
 
+# for i in range(10):
+#     fig = plt.figure()
+#     ax = fig.add_subplot(111, projection='3d')
+#     ax.scatter(curve_pos[i,0,:], curve_pos[i,1,:], curve_pos[i,2,:])
+#     ax.set_xlabel('$X$')
+#     ax.set_ylabel('$Y$')
+#     ax.set_zlabel('$Z$')
+# plt.show()
+print("here: ")
