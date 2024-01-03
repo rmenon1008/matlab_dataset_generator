@@ -16,34 +16,29 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 from dataset_consumer import DatasetConsumer
 
+from utils import watts_to_dbm, get_scaler
+
 np.set_printoptions(threshold=sys.maxsize)
 
 DEBUG = True
 SCALE_DATASET = True
 SAVE_PATH = './machine_learning/models/model.pth'
-NUM_PATHS = 100000
-
-# Value scaling function for feeding into nn
-def get_scaler(scaler):
-    scalers = {
-        "minmax": MinMaxScaler,
-        "standard": StandardScaler,
-        "maxabs": MaxAbsScaler,
-        "robust": RobustScaler,
-    }
-    return scalers.get(scaler.lower())()
-
+NUM_PATHS = 100
 
 DATASET = 'dataset_0_5m_spacing.h5'
 d = DatasetConsumer(DATASET)
 d.print_info()
-# d.csi_mags = d.scale(scaler.fit_transform, d.csi_mags.T).T
-not_scaled = d.csi_mags
+
+# Scale mag data
 scaler = get_scaler('minmax')
-d.csi_mags = d.scale(scaler.fit_transform, d.csi_mags)
+scaler.fit(d.csi_mags.T)
+d.csi_mags = d.scale(scaler.transform, d.csi_mags.T).T
+
+# Scale phase data
 d.csi_phases = d.unwrap(d.csi_phases)
 scaler_phase = get_scaler('minmax')
 d.csi_phases = d.scale(scaler.fit_transform, d.csi_phases)
+
 paths = d.generate_straight_paths(NUM_PATHS, 10)
 dataset_mag = d.paths_to_dataset_mag_only(paths)
 dataset_phase = d.paths_to_dataset_phase_only(paths)
@@ -51,35 +46,39 @@ dataset_positions = d.paths_to_dataset_positions(paths)
 dataset_inteleaved = d.paths_to_dataset_interleaved_w_rays(paths)
 cprint.info(f"dataset_inteleaved.shape {dataset_inteleaved.shape}")
 
-# # # Check 10 random positions in dataset
-# # if DEBUG:
-# #     for i in range(10):
-# #         rand = np.random.randint(dataset_positions.shape[0])
-# #         fig = plt.figure()
-# #         ax = fig.add_subplot(111, projection='3d')
-# #         ax.scatter(dataset_positions[rand,0,:], dataset_positions[rand,1,:], dataset_positions[rand,2,:])
-# #         ax.set_xlim([0, 200])
-# #         ax.set_ylim([0, 200])
-# #         ax.set_zlim([-50, 50])
-# #         plt.show()
+test = scaler.inverse_transform(d.csi_mags.T[:1,:]).T
+# d.csi_mags = scaler.transform(d.csi_mags.T).T
 
-# # Check 10 random CSI readings in dataset
+
+# # Check 10 random positions in dataset
 # if DEBUG:
-#     for i in range(5):
-#         rand1 = np.random.randint(dataset_inteleaved.shape[0])
-#         rand2 = np.random.randint(dataset_inteleaved.shape[1])
-#         # cprint.info(f'position {positions[:,790]}')
-#         plt.figure(1)
-#         # plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
-#         plt.subplot(211)
-#         plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 256:356])
-#         plt.subplot(212)
-#         plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 356:456])
-#         plt.subplot(221)
-#         plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 456:556])
-#         plt.subplot(222)
-#         plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 556:])
+#     for i in range(10):
+#         rand = np.random.randint(dataset_positions.shape[0])
+#         fig = plt.figure()
+#         ax = fig.add_subplot(111, projection='3d')
+#         ax.scatter(dataset_positions[rand,0,:], dataset_positions[rand,1,:], dataset_positions[rand,2,:])
+#         ax.set_xlim([0, 200])
+#         ax.set_ylim([0, 200])
+#         ax.set_zlim([-50, 50])
 #         plt.show()
+
+# Check 10 random CSI readings in dataset
+if DEBUG:
+    for i in range(5):
+        rand1 = np.random.randint(dataset_inteleaved.shape[0])
+        rand2 = np.random.randint(dataset_inteleaved.shape[1])
+        # cprint.info(f'position {positions[:,790]}')
+        plt.figure(1)
+        # plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
+        plt.subplot(211)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 256:356])
+        plt.subplot(212)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 356:456])
+        plt.subplot(221)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 456:556])
+        plt.subplot(222)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 556:])
+        plt.show()
 
 # # Convert 'split_sequences' to a PyTorch tensor
 dataset_inteleaved = torch.from_numpy(dataset_inteleaved)
@@ -230,8 +229,8 @@ if DEBUG:
         prediction = model(new_input.to(torch.float32))
 
         # Descale
-        input_descaled = new_input.squeeze().detach().numpy()
-        # input_descaled = scaler.inverse_transform(new_input.squeeze().detach().numpy())
+        # input_descaled = new_input.squeeze().detach().numpy()
+        input_descaled = scaler.inverse_transform(new_input.squeeze().detach().numpy())
         # Graphs
         fig, axs = plt.subplots(5)
         new_input = new_input.squeeze()
