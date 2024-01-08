@@ -316,6 +316,24 @@ class DatasetConsumer:
         positions = np.swapaxes(positions, 0, 1)
         return positions
     
+    def paths_to_relative_positions(self, path_indices):
+        """
+        Generate a dataset from the given path indices
+        Shape: (num_paths, path_length_n, 2)
+        """
+        # Use the indices to grab the positions for each point
+        positions = self.rx_positions[:, path_indices]
+        
+        # Subtract the starting point from all points
+        positions = positions - positions[:, :, 0:1]
+
+        # Divide by the grid spacing
+        positions = positions / self.grid_size[1]
+
+        # Remove the z axis
+        positions = np.swapaxes(positions, 0, 1)
+        return positions[:, 0:2, :]
+    
     def paths_to_dataset_interleaved(self, path_indices):
         """
         Generate a torch dataset from the given path indices
@@ -324,7 +342,6 @@ class DatasetConsumer:
         # Get the magnitude and phase data
         csi_mags = self.paths_to_dataset_mag_only(path_indices)
         csi_phases = self.paths_to_dataset_phase_only(path_indices)
-
 
         # Create a new array to hold the interleaved data
         num_paths, path_length_n, _ = csi_mags.shape
@@ -335,6 +352,31 @@ class DatasetConsumer:
         interleaved[..., 1::2] = csi_phases
 
         return interleaved
+    
+
+    def paths_to_dataset_interleaved_w_relative_positions(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 258)
+        """
+        # Get the magnitude and phase data
+        csi_mags = self.paths_to_dataset_mag_only(path_indices)
+        csi_phases = self.paths_to_dataset_phase_only(path_indices)
+        positions = self.paths_to_relative_positions(path_indices)
+        positions = np.swapaxes(positions, 1, 2)
+
+        # Create a new array to hold the interleaved data
+        num_paths, path_length_n, _ = csi_mags.shape
+        interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
+
+        # Fill the new array with alternating slices from the two original arrays
+        interleaved[..., ::2] = csi_mags
+        interleaved[..., 1::2] = csi_phases
+
+        # Add the positions to the end of the array
+        concatenated = np.concatenate((interleaved, positions), axis=2)
+        return concatenated
+    
     
     # def paths_to_dataset_interleaved_padded(self, path_indices):
     #     """
@@ -391,7 +433,7 @@ class DatasetConsumer:
         cprint.warn(f'interleaved_all.shape {interleaved_all.shape}')
         return interleaved_all
         
-    def left_center_right_paths(self, path_indices, terminal_length=1):
+    def create_left_center_right_paths(self, path_indices, terminal_length=1):
         """
         Each path is replaced with 3 paths. Each has the same starting number of points as the original path.
         Then, each path is extended by a terminal_length number of points in 3 different directions.
@@ -464,20 +506,24 @@ class DatasetConsumer:
 
         return (left_paths, center_paths, right_paths)
     
-DATASET = 'older_ver/dataset_0_5m_spacing.h5'
-d = DatasetConsumer(DATASET)
-d.print_info()
+# DATASET = 'older_ver/dataset_0_5m_spacing.h5'
+# d = DatasetConsumer(DATASET)
+# d.print_info()
 
-# paths = d.generate_straight_paths(200, path_length_n=20)
-paths = d.generate_curved_paths(200, path_length_n=20)
-left_paths, center_paths, right_paths = d.left_center_right_paths(paths, terminal_length=10)
-l_pos = d.paths_to_dataset_positions(left_paths)
-c_pos = d.paths_to_dataset_positions(center_paths)
-r_pos = d.paths_to_dataset_positions(right_paths)
+# # Start with curved paths
+# paths = d.generate_curved_paths(200, path_length_n=20)
 
-# Plot the first 50 paths
-for i in range(10):
-    plt.plot(l_pos[i, 0, :], l_pos[i, 1, :])
-    plt.plot(r_pos[i, 0, :], r_pos[i, 1, :])
-    plt.plot(c_pos[i, 0, :], c_pos[i, 1, :])
-plt.show()
+# # Create left, center, and right paths
+# left_paths, center_paths, right_paths = d.create_left_center_right_paths(paths, terminal_length=10)
+
+# # Create datasets from the paths
+# left_dataset = d.paths_to_dataset_interleaved_w_relative_positions(left_paths)
+# center_dataset = d.paths_to_dataset_interleaved_w_relative_positions(center_paths)
+# right_dataset = d.paths_to_dataset_interleaved_w_relative_positions(right_paths)
+
+# # Plot the first 50 paths' relative positions
+# for i in range(50):
+#     plt.plot(left_dataset[i, :, -1], left_dataset[i, :, -2])
+#     plt.plot(right_dataset[i, :, -1], right_dataset[i, :, -2])
+#     plt.plot(center_dataset[i, :, -1], center_dataset[i, :, -2])
+# plt.show()
