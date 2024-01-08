@@ -38,6 +38,45 @@ def breesenham(x0, y0, x1, y1):
     points.append((x, y))
     return points
 
+def curve_in_range(delta, s, theta,x, y, range_of_points, L,dt):
+    """
+    Generate a curved line between two points using a method similar to car kinematics
+    Inputs: 
+        delta - steering angle (radians)
+        s     - speed
+        theta - car heading (radians)
+        x     - x coordinates of start and end points
+        y     - y coordinates of start and end points
+        range - the number of points we want to have
+        L     - Length of car (omitting this?)
+        dt    - time increment   
+    Returns: 2 lists, one with the (x, y) points to create the line, 
+        and another with the heading angles 
+    """
+    xvec = []
+    yvec = []
+    points = []
+    thetavec = []
+    for i in range(len(range_of_points)):
+        dx = np.cos(theta) * s * dt
+        dy = np.sin(theta)* s *dt
+        dtheta = (s/L) * np.tan(delta) * dt
+        xnew = x + dx
+        ynew = y + dy
+        thetanew = theta + dtheta
+        thetanew = np.mod(thetanew,2*np.pi) # Wrap theta at pi
+        xvec.append(xnew)
+        yvec.append(ynew)
+        points.append((xnew, ynew))
+        thetavec.append(thetanew)
+        x = xnew
+        y= ynew
+        theta = thetanew
+    # print(f"Generated Points: {points}")
+    # print(f"Generated Angles: {thetavec}")
+
+    return([xvec, yvec, points, thetavec]) 
+
 class DatasetConsumer:
     def __init__(self, dataset_path):
         self.attributes = None
@@ -115,6 +154,13 @@ class DatasetConsumer:
         replace_np_array_with_list(d)
         return d
     
+    def __single_straight_path(self, start_point, end_point):
+        # Generate a straight path between two points
+        x0, y0 = self.__real_to_grid(start_point[0], start_point[1])
+        x1, y1 = self.__real_to_grid(end_point[0], end_point[1])
+        points = breesenham(x0, y0, x1, y1)
+        return np.array([self.__grid_to_real_index(x, y) for x, y in points])
+    
     # Scale data with passed function
     def scale(self, scaler: Callable[[np.array], np.array], data: np.array) -> np.array:
         return scaler(data)
@@ -152,16 +198,60 @@ class DatasetConsumer:
                 point2 = np.random.randint(0, self.rx_positions.shape[1])
 
                 # Generate a straight line between the two points
-                x0, y0 = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
-                x1, y1 = self.__real_to_grid(self.rx_positions[0, point2], self.rx_positions[1, point2])
-                points = breesenham(x0, y0, x1, y1)
+                path = self.__single_straight_path(self.rx_positions[:, point1], self.rx_positions[:, point2])
 
                 # Make sure the path is at least path_length_n long
-                if len(points) < path_length_n:
+                if len(path) <= path_length_n:
                     continue
 
+                path_indices[i] = path[:path_length_n]
+
+                break
+        return path_indices
+    
+
+    def generate_curved_paths(self, num_paths, path_length_n=20):
+        """
+        Generate curved paths in the rx_positions array. (currently not working as expected)
+
+        inputs:
+            num_paths: Number of paths to generate
+            path_length_n: Length of each path in number of points
+        output: An array with shape: (num_paths, path_length_n)
+        """
+        deg2rad = np.pi / 180.0
+        rad2deg = 180.0 / np.pi
+        print(f'Generating {num_paths} paths of length {path_length_n}')
+        path_indices = np.zeros((num_paths, path_length_n), dtype=np.int32)
+        for i in range(num_paths):
+            while True:
+                # Grab one random point within the size of the dataset 
+                point1 = np.random.randint(0, self.rx_positions.shape[1])
+                # reducing randomness by setting 2 degrees
+                steering_angle_delta = np.random.uniform(-1, 1)
+                heading_angle_theta = np.random.uniform(0, 360)
+
+                # angles in radians
+                delta = steering_angle_delta * deg2rad
+                theta = heading_angle_theta * deg2rad
+                dt = 1 # this value can be changed, currently the time step is 1
+
+                # Generate a curved line between from random point and set angle
+                x, y = self.__real_to_grid(self.rx_positions[0, point1], self.rx_positions[1, point1])
+                range_of_points = np.arange(0,path_length_n,dt)
+                [x_coor, y_coor, points, thetas] = curve_in_range(delta, 1, theta, x, y, range_of_points, 0.2, dt)
+                
+                # Check if all the points are within the grid bounds
+                ep = 10
+                if np.any(np.array(x_coor) < self.grid_size[0] + ep) or np.any(np.array(x_coor) > self.grid_size[1] - ep):
+                    continue
+                if np.any(np.array(y_coor) < self.grid_size[2] + ep) or np.any(np.array(y_coor) > self.grid_size[3] - ep):
+                    continue
+
+                # Make sure the path is at least path_length_n long
                 path_indices[i] = [self.__grid_to_real_index(x, y) for x, y in points[:path_length_n]]
                 break
+
         return path_indices
     
 
@@ -301,51 +391,93 @@ class DatasetConsumer:
         cprint.warn(f'interleaved_all.shape {interleaved_all.shape}')
         return interleaved_all
         
-    def add_terminals_to_paths(self, path_indices, distance_from_end=1):
+    def left_center_right_paths(self, path_indices, terminal_length=1):
         """
-        For each path, add a left and right terminal.
+        Each path is replaced with 3 paths. Each has the same starting number of points as the original path.
+        Then, each path is extended by a terminal_length number of points in 3 different directions.
+        """
+        def rotate_vec(vec, angle):
+            """
+            Rotate a vector by the given angle
+            """
+            flat = np.array([vec[0], vec[1]])
+            rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+            angled = np.matmul(rotation_matrix, flat)
+            return np.array([angled[0], angled[1], vec[2]])
 
-        These are just added as the last two points in the path
-        (left terminal is second to last, right terminal is last)
-        """
-        num_paths, path_length_n = paths.shape
-        paths_with_terminals = np.empty((num_paths, path_length_n + 2), dtype=paths.dtype)
+        num_paths, path_length_n = path_indices.shape
+        left_paths = np.zeros((num_paths, path_length_n + terminal_length), dtype=np.int32)
+        center_paths = np.zeros((num_paths, path_length_n + terminal_length), dtype=np.int32)
+        right_paths = np.zeros((num_paths, path_length_n + terminal_length), dtype=np.int32)
         for i in range(num_paths):
             # Add the base path
-            paths_with_terminals[i, :-2] = paths[i]
+            left_paths[i, :path_length_n] = path_indices[i]
+            center_paths[i, :path_length_n] = path_indices[i]
+            right_paths[i, :path_length_n] = path_indices[i]
 
             # Find the direction at the end of the path
-            last_point = self.rx_positions[:, paths[i, -1]]
-            second_to_last_point = self.rx_positions[:, paths[i, -4]]
+            last_point = self.rx_positions[:, path_indices[i, -1]]
+            second_to_last_point = self.rx_positions[:, path_indices[i, -5]]
             direction = last_point - second_to_last_point
-            direction = direction / np.linalg.norm(direction)
 
-            left_direction = np.array([-direction[1], direction[0], 0])
-            right_direction = np.array([direction[1], -direction[0], 0])
+            if np.linalg.norm(direction) == 0:
+                direction = np.array([1, 0, 0])
+            else:
+                direction = direction / np.linalg.norm(direction)
 
-            # Find the left and right terminals
-            left_terminal = last_point + (left_direction * distance_from_end)
-            right_terminal = last_point + (right_direction * distance_from_end)
+            # Choose directions for the terminals
+            left_direction = rotate_vec(direction, np.pi / 4)
+            center_direction = direction
+            right_direction = rotate_vec(direction, -np.pi / 4)
 
-            # Find the closest point in the rx_positions array
-            left_terminal_index = self.__closest_real_index(left_terminal[0], left_terminal[1])
-            right_terminal_index = self.__closest_real_index(right_terminal[0], right_terminal[1])
+            # Find the end points of the terminals
+            left_end = last_point + left_direction * terminal_length * self.grid_spacing * 2
+            center_end = last_point + center_direction * terminal_length * self.grid_spacing * 2
+            right_end = last_point + right_direction * terminal_length * self.grid_spacing * 2
+
+            # Find the indices of the end points
+            left_index = self.__closest_real_index(left_end[0], left_end[1])
+            center_index = self.__closest_real_index(center_end[0], center_end[1])
+            right_index = self.__closest_real_index(right_end[0], right_end[1])
+
+            # Create straight paths to the end points
+            left_path = self.__single_straight_path(last_point, self.rx_positions[:, left_index])
+            center_path = self.__single_straight_path(last_point, self.rx_positions[:, center_index])
+            right_path = self.__single_straight_path(last_point, self.rx_positions[:, right_index])
+
+            # Repeat the last point if terminal is too short
+            def pad_path(path):
+                if len(path) < terminal_length:
+                    path = np.repeat(path[-1:], terminal_length, axis=0)
+                if len(path) > terminal_length:
+                    path = path[:terminal_length]
+                return path
+            
+            left_path = pad_path(left_path)
+            center_path = pad_path(center_path)
+            right_path = pad_path(right_path)
 
             # Add the terminals to the path
-            paths_with_terminals[i, -2] = left_terminal_index
-            paths_with_terminals[i, -1] = right_terminal_index
+            left_paths[i, path_length_n:] = left_path
+            center_paths[i, path_length_n:] = center_path
+            right_paths[i, path_length_n:] = right_path
 
-        return paths_with_terminals
+        return (left_paths, center_paths, right_paths)
     
-# DATASET = 'older_ver/dataset_0_5m_spacing.h5'
-# d = DatasetConsumer(DATASET)
-# d.print_info()
+DATASET = 'older_ver/dataset_0_5m_spacing.h5'
+d = DatasetConsumer(DATASET)
+d.print_info()
 
-# paths = d.generate_straight_paths(200)
-# paths = d.add_terminals_to_paths(paths, distance_from_end=2)
-# pos = d.paths_to_dataset_positions(paths)
+# paths = d.generate_straight_paths(200, path_length_n=20)
+paths = d.generate_curved_paths(200, path_length_n=20)
+left_paths, center_paths, right_paths = d.left_center_right_paths(paths, terminal_length=10)
+l_pos = d.paths_to_dataset_positions(left_paths)
+c_pos = d.paths_to_dataset_positions(center_paths)
+r_pos = d.paths_to_dataset_positions(right_paths)
 
-# # Plot the first 50 paths
-# for i in range(50):
-#     plt.plot(pos[i, 0, :], pos[i, 1, :])
-# plt.show()
+# Plot the first 50 paths
+for i in range(10):
+    plt.plot(l_pos[i, 0, :], l_pos[i, 1, :])
+    plt.plot(r_pos[i, 0, :], r_pos[i, 1, :])
+    plt.plot(c_pos[i, 0, :], c_pos[i, 1, :])
+plt.show()
