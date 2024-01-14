@@ -16,42 +16,39 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 from dataset_consumer import DatasetConsumer
 
+from utils import watts_to_dbm, get_scaler
+
 np.set_printoptions(threshold=sys.maxsize)
 
 DEBUG = True
 SCALE_DATASET = True
 SAVE_PATH = './machine_learning/models/model.pth'
-NUM_PATHS = 50000
-
-# Value scaling function for feeding into nn
-def get_scaler(scaler):
-    scalers = {
-        "minmax": MinMaxScaler,
-        "standard": StandardScaler,
-        "maxabs": MaxAbsScaler,
-        "robust": RobustScaler,
-    }
-    return scalers.get(scaler.lower())()
-
+NUM_PATHS = 100
 
 DATASET = 'dataset_0_5m_spacing.h5'
 d = DatasetConsumer(DATASET)
 d.print_info()
+
+# Scale mag data
 scaler = get_scaler('minmax')
-# d.csi_mags = d.scale(scaler.fit_transform, d.csi_mags.T).T
-d.csi_mags = d.scale(scaler.fit_transform, d.csi_mags)
-cprint.info(f'd.csi_mags.shape {d.csi_mags.shape}')
+scaler.fit(d.csi_mags.T)
+d.csi_mags = d.scale(scaler.transform, d.csi_mags.T).T
+
+# Scale phase data
 d.csi_phases = d.unwrap(d.csi_phases)
 scaler_phase = get_scaler('minmax')
 d.csi_phases = d.scale(scaler.fit_transform, d.csi_phases)
+
 paths = d.generate_straight_paths(NUM_PATHS, 10)
 dataset_mag = d.paths_to_dataset_mag_only(paths)
 dataset_phase = d.paths_to_dataset_phase_only(paths)
 dataset_positions = d.paths_to_dataset_positions(paths)
-cprint(f"dataset_mag.shape {dataset_mag.shape}")
-cprint(f"dataset_phase.shape {dataset_phase.shape}")
-dataset_interleaved = d.paths_to_dataset_interleaved(paths)
-cprint(f"dataset_interleaved.shape {dataset_interleaved.shape}")
+dataset_inteleaved = d.paths_to_dataset_interleaved_w_rays(paths)
+cprint.info(f"dataset_inteleaved.shape {dataset_inteleaved.shape}")
+
+test = scaler.inverse_transform(d.csi_mags.T[:1,:]).T
+# d.csi_mags = scaler.transform(d.csi_mags.T).T
+
 
 # # Check 10 random positions in dataset
 # if DEBUG:
@@ -65,34 +62,42 @@ cprint(f"dataset_interleaved.shape {dataset_interleaved.shape}")
 #         ax.set_zlim([-50, 50])
 #         plt.show()
 
-# # Check 10 random CSI readings in dataset
-# if DEBUG:
-#     for i in range(10):
-#         rand1 = np.random.randint(dataset_mag.shape[0])
-#         rand2 = np.random.randint(dataset_mag.shape[1])
-#         # cprint.info(f'position {positions[:,790]}')
-#         plt.figure(1)
-#         # plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
-#         plt.subplot(211)
-#         plt.plot(np.arange(dataset_mag.shape[2]), dataset_mag[rand1][rand2])
-#         plt.subplot(212)
-#         plt.plot(np.arange(dataset_phase.shape[2]), dataset_phase[rand1][rand2])
-#         plt.show()
+# Check 10 random CSI readings in dataset
+if DEBUG:
+    for i in range(5):
+        rand1 = np.random.randint(dataset_inteleaved.shape[0])
+        rand2 = np.random.randint(dataset_inteleaved.shape[1])
+        # cprint.info(f'position {positions[:,790]}')
+        plt.figure(1)
+        # plt.plot(positions[:1,:10], positions[1:2,:10],'.', color='b')
+        plt.subplot(211)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 256:356])
+        plt.subplot(212)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 356:456])
+        plt.subplot(221)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 456:556])
+        plt.subplot(222)
+        plt.plot(np.arange(100), dataset_inteleaved[rand1, rand2, 556:])
+        plt.show()
 
 # # Convert 'split_sequences' to a PyTorch tensor
-dataset_interleaved = torch.from_numpy(dataset_interleaved)
+dataset_inteleaved = torch.from_numpy(dataset_inteleaved)
 # Split dataset into train, val and test
-X_train, X_test, y_train, y_test = train_test_split(dataset_interleaved[:,:9,:], dataset_interleaved[:,9:10,:].squeeze(), train_size = 0.95, shuffle=False)
+X_train, X_test, y_train, y_test = train_test_split(dataset_inteleaved[:,:9,:], dataset_inteleaved[:,9:10,:].squeeze(), train_size = 0.95, shuffle=False)
 X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, train_size = 0.8, shuffle=False)
-y_train = y_train[:,0::2]
-y_test = y_test[:,0::2]
-y_val = y_val[:,0::2]
+
+# Get mags for target dataset
+y_train = y_train[:,0:256:2]
+y_test = y_test[:,0:256:2]
+y_val = y_val[:,0:256:2]
 cprint.info(f'y_train.shape {y_train.shape}')
+
+# Dataset
 train = TensorDataset(X_train, y_train)
 validate = TensorDataset(X_val, y_val)
 test = TensorDataset(X_test, y_test)
 # Define hyperparameters
-batch_size = 10000
+batch_size = 20000
 shuffle = True
 
 # Create a data loader
@@ -114,14 +119,14 @@ def get_model(model, model_params):
     return models.get(model.lower())(**model_params)
 
 # Hyperparameters
-input_size = 256
+input_size = 656
 hidden_size = 64
 num_layers = 5
 output_size = 128
 sequence_length = 9
 learning_rate = 0.005
 dropout = .2
-num_epochs = 100
+num_epochs = 200
 batch_size = batch_size
 model_type = "gru"
 model_params = {'input_size': input_size,
@@ -131,7 +136,7 @@ model_params = {'input_size': input_size,
                 'dropout_prob' : dropout}
 
 current = datetime.datetime.now()
-writer = SummaryWriter(f"runs/test{model_type}_{num_epochs}_{num_layers}_{hidden_size}_{learning_rate}_{dropout}_{NUM_PATHS}_{current.month}-{current.day}-{current.hour}:{current.minute}_interleaved")
+writer = SummaryWriter(f"runs/test{model_type}_{num_epochs}_{num_layers}_{hidden_size}_{learning_rate}_{dropout}_{NUM_PATHS}_{batch_size}_{current.month}-{current.day}-{current.hour}:{current.minute}_phase_rays_aoa")
 
 # Create a simple RNN model
 model = get_model(model_type, model_params)
@@ -144,7 +149,6 @@ optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 # decay_lr_lambda = lambda epoch: 0.2 if optimizer.param_groups[0]['lr'] < 0.0001 else 0.915 ** (epoch // 5)
 # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=decay_lr_lambda)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.5, verbose=True)
-
 
 # Training loop
 model = model.float()
@@ -219,24 +223,24 @@ if DEBUG:
         # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
         rand = torch.randint(0, X_test.shape[0], (1,))
         new_input = X_test[rand,:]
-        ground_truth = y_test[rand,0::2]
+        ground_truth = y_test[rand,:]
         cprint.info(f'ground truth {ground_truth.shape}')
         # Prediction
         prediction = model(new_input.to(torch.float32))
 
+        # Descale
+        # input_descaled = new_input.squeeze().detach().numpy()
+        input_descaled = scaler.inverse_transform(new_input.squeeze().detach().numpy())
         # Graphs
         fig, axs = plt.subplots(5)
         new_input = new_input.squeeze()
         # cprint.warn(f'validation shape {new_input[8,:].shape}')
-        axs[0].plot(new_input[6,0::2])
-        axs[0].set_title("CSI Mag and Phase Reading 7")
-        # axs[0].plot(new_input[6,1::2])
-        axs[1].plot(new_input[7,0::2])
-        axs[1].set_title("CSI Mag and Phase Reading 8")
-        # axs[1].plot(new_input[7,1::2])
-        axs[2].plot(new_input[8,0::2])
+        axs[0].plot(input_descaled[6,0:256:2])
+        axs[0].set_title("CSI Reading 7")
+        axs[1].plot(input_descaled[7,0:256:2])
+        axs[1].set_title("CSI Reading 8")
+        axs[2].plot(input_descaled[8,0:256:2])
         axs[2].set_title("CSI Reading 9")
-        # axs[2].plot(new_input[8,1::2])
 
         prediction = prediction.detach().numpy()
         # writer.add_figure(f'Comparison {i}', fig, global_step=0)
@@ -253,9 +257,9 @@ if DEBUG:
         axs[4].plot(prediction.squeeze())
         axs[4].set_title("Prediction")
 
-        # writer.add_figure(f'Comparison {i}', fig, global_step=0)
-        # plt.close(fig)
-        plt.show()
+        writer.add_figure(f'Comparison {i}', fig, global_step=0)
+        plt.close(fig)
+        # plt.show()
 
 # Close tensorboard writer
 writer.close()
@@ -265,6 +269,5 @@ torch.save(model.state_dict(), SAVE_PATH)
 # Final learning rate
 final_learning_rate = optimizer.param_groups[0]['lr']
 cprint.ok(f'Final learning rate {final_learning_rate}')
-
 
 # # NOTE Run "tensorboard --logdir runs" to see results

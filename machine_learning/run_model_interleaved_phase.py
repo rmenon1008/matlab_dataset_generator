@@ -25,8 +25,8 @@ X_test = torch.load(f'./machine_learning/models/X_test_{model_type}.pt')
 y_test = torch.load(f'./machine_learning/models/y_test_{model_type}.pt')
 
 # Hyperparameters
-input_size = 128
-hidden_size = 32
+input_size = 656
+hidden_size = 64
 num_layers = 5
 output_size = 128
 sequence_length = 9
@@ -77,7 +77,8 @@ for i in range(5):
         # new_input = split_sequences_tensor[torch.randint(0, split_sequences_tensor.shape[0], (1,)),:,:]
         rand = torch.randint(0, X_test.shape[0], (1,))
         new_input = X_test[rand,:]
-        ground_truth = y_test[rand,:]
+        ground_truth = y_test[rand,0::2]
+        cprint.info(f'ground truth {ground_truth.shape}')
         # Prediction
         prediction = model(new_input.to(torch.float32))
 
@@ -85,19 +86,26 @@ for i in range(5):
         fig, axs = plt.subplots(5)
         new_input = new_input.squeeze()
         # cprint.warn(f'validation shape {new_input[8,:].shape}')
-        axs[0].plot(new_input[6,:])
-        axs[0].set_title("CSI Reading 7")
-        axs[1].plot(new_input[7,:])
-        axs[1].set_title("CSI Reading 8")
-        axs[2].plot(new_input[8,:])
+        axs[0].plot(new_input[6,0:256:2])
+        axs[0].set_title("CSI Mag and Phase Reading 7")
+        # axs[0].plot(new_input[6,1::2])
+        axs[1].plot(new_input[7,0:256:2])
+        axs[1].set_title("CSI Mag and Phase Reading 8")
+        # axs[1].plot(new_input[7,1::2])
+        axs[2].plot(new_input[8,0:256:2])
         axs[2].set_title("CSI Reading 9")
+        # axs[2].plot(new_input[8,1::2])
 
         prediction = prediction.detach().numpy()
         # writer.add_figure(f'Comparison {i}', fig, global_step=0)
         # plt.close(fig)
         # plt.show()
         
+        # prediction = np.expand_dims(prediction, axis=1)
         # prediction = scaler.inverse_transform(prediction)
+        # cprint.info(f'Prediction shape {prediction.shape}')
+        # cprint.info(f'Prediction shape {prediction}')
+        # cprint.info(f'Prediction {scaler.inverse_transform(prediction).shape}')
         axs[3].plot(ground_truth.squeeze())
         axs[3].set_title("Ground Truth")
         axs[4].plot(prediction.squeeze())
