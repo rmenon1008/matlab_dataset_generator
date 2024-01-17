@@ -84,6 +84,7 @@ class DatasetConsumer:
         self.csi_phases = None
         self.rx_positions = None
         self.ray_aoas = None
+        self.ray_path_losses = None
 
         with h5py.File(dataset_path, 'r') as file:
             self.attributes = self.__clean_attributes(file.attrs)
@@ -91,6 +92,7 @@ class DatasetConsumer:
             self.csi_phases = file['csis_phase'][:]
             self.rx_positions = file['positions'][:]
             self.ray_aoas = file['ray_aoas'][:]
+            self.ray_path_losses = file['ray_path_losses'][:]
 
         self.tx_position = self.attributes['tx_position']
         self.grid_size, self.grid_spacing = self.__find_grid(self.rx_positions)
@@ -276,7 +278,19 @@ class DatasetConsumer:
         csi_phases = np.swapaxes(csi_phases, 0, 1)
         csi_phases = np.swapaxes(csi_phases, 1, 2)
         return csi_phases
-    
+###    
+    def paths_to_dataset_pathloss_only(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 128)
+        """
+        # Use the indices to grab the CSI path lossdata for each point
+        ray_path_losses = self.ray_path_losses[:, path_indices]
+        ray_path_losses = np.swapaxes(ray_path_losses, 0, 1)
+        ray_path_losses = np.swapaxes(ray_path_losses, 1, 2)
+        cprint.info(f'self.ray_path_losses.shape {self.ray_path_losses.T.shape}')
+        return ray_path_losses
+###   
     def paths_to_dataset_rays_aoas(self, path_indices):
         """
         Generate a torch dataset from the given path indices
@@ -352,7 +366,6 @@ class DatasetConsumer:
         interleaved[..., 1::2] = csi_phases
 
         return interleaved
-    
 
     def paths_to_dataset_interleaved_w_relative_positions(self, path_indices):
         """
@@ -377,6 +390,8 @@ class DatasetConsumer:
         concatenated = np.concatenate((interleaved, positions), axis=2)
         return concatenated
     
+    
+
     
     # def paths_to_dataset_interleaved_padded(self, path_indices):
     #     """
@@ -432,7 +447,26 @@ class DatasetConsumer:
         interleaved_all[..., 556:656] = rays_aoas_trig[3,:,:,:]
         cprint.warn(f'interleaved_all.shape {interleaved_all.shape}')
         return interleaved_all
-        
+ ###   
+    def paths_to_dataset_interleaved_w_path_loss(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 256)
+        """
+        # Get the magnitude and phase data
+        csi_mags = self.paths_to_dataset_mag_only(path_indices)
+        path_loss = self.paths_to_dataset_pathloss_only(path_indices)
+
+        # Create a new array to hold the interleaved data
+        num_paths, path_length_n, _ = csi_mags.shape
+        interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
+
+        # Fill the new array with alternating slices from the two original arrays
+        interleaved[..., ::2] = csi_mags
+        interleaved[..., 1::2] = path_loss
+
+        return interleaved  
+###
     def create_left_center_right_paths(self, path_indices, terminal_length=1):
         """
         Each path is replaced with 3 paths. Each has the same starting number of points as the original path.

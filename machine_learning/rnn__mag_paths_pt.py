@@ -28,10 +28,10 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     DEBUG = True
     SCALER = scaler_type
     SAVE_PATH = './machine_learning/models/model.pth'
-    NUM_PATHS = 100000
+    NUM_PATHS = 1000
 
     # Hyperparameters
-    batch_size = 20000
+    batch_size = 200
     shuffle = True
     input_size = 128
     hidden_size = 64
@@ -63,14 +63,19 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     d.csi_phases = d.unwrap(d.csi_phases)
     paths = d.generate_straight_paths(NUM_PATHS, 10)
     dataset_mag = d.paths_to_dataset_mag_only(paths)
-    dataset_phase = d.paths_to_dataset_phase_only(paths)
-    dataset_positions = d.paths_to_dataset_positions(paths)
+
+    ############ adding path loss, ideally lower path loss will indicate stronger signal strength? is there another data set for num paths? ######
+    ############ need to add a function to dataset_consumer that will take the the path loss
+    dataset_ray_path_loss = d.paths_to_dataset_ 
+    
+    # dataset_phase = d.paths_to_dataset_phase_only(paths)
+    # dataset_positions = d.paths_to_dataset_positions(paths)
 
     # # Convert 'split_sequences' to a PyTorch tensor
     dataset_mag = torch.from_numpy(dataset_mag)
     # Split dataset into train, val and test
-    X_train, X_test, y_train, y_test = train_test_split(dataset_mag[:,:9,:], dataset_mag[:,9:10,:].squeeze(), train_size = 0.85, shuffle=False)
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, train_size = 0.8, shuffle=False)
+    X_train, X_test, y_train, y_test = train_test_split(dataset_mag[:,:9,:], dataset_mag[:,9:10,:].squeeze(), train_size = 0.85, shuffle=False) # 85% of all data is used for training
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, train_size = 0.8, shuffle=False) # 80% is training data, 20% is validation
 
     # Dataset
     train = TensorDataset(X_train, y_train)
@@ -95,6 +100,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         }
         return models.get(model.lower())(**model_params)
 
+# For the tensorboard - this sets up the different graphs that will be presented
+    # can find These graphs by filtering to scalars
     layout = {
         "ABCDE": {
             "loss": ["Multiline", ["losses/running_train_loss", "losses/running_val_loss", "losses/test_loss"]],
@@ -113,6 +120,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     # Learning rate adjustment
+    # 'ReduceLROnPlateau' will adjust the learning rate based on the validation loss and when the learning rate plateaus
+        # patience is the number of epochs of no improvement, or how long lr platueas, then the lr is adjusted by decreasing
     # decay_lr_lambda = lambda epoch: 0.2 if optimizer.param_groups[0]['lr'] < 0.0001 else 0.915 ** (epoch // 5)
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=decay_lr_lambda)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.5, verbose=True)
@@ -125,7 +134,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         running_train_loss = 0.0
         running_val_loss = 0
 
-        model.train()
+        # Training model
+        model.train() 
         for batch in train_dataloader:
             sequences, targets = batch
             outputs = model(sequences.float())
@@ -139,12 +149,13 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
             writer.add_scalar("losses/running_train_loss", loss.item(), i)
             i += 1
 
+        # Evaluating model
         model.eval()
         with torch.no_grad():
             for batch in validate_dataloader:
                 sequences, targets = batch
-                outputs = model(sequences.float())
-                val_loss = criterion(outputs, targets.float())
+                outputs = model(sequences.float()) # predicted outputs
+                val_loss = criterion(outputs, targets.float()) # loss function based on predicted output and targeted value
                 running_val_loss += val_loss.item()
                 writer.add_scalar("losses/running_val_loss", val_loss.item(), j)
 
@@ -162,11 +173,11 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
                 j += 1
 
 
-        if epoch % 100 == 99:
+        if epoch % 100 == 99: # if it goes over 100 epochs:
             print(f'[{epoch + 1}, {num_epochs}] loss: {running_train_loss:.3f}')
             running_train_loss = 0.0
 
-        writer.add_scalar("learning_rate", optimizer.param_groups[0]['lr'], i)
+        writer.add_scalar("learning_rate", optimizer.param_groups[0]['lr'], i) # param_groups is a dict with  each parameter specific to the optimizer, such as learning rate
         scheduler.step(val_loss.item())
 
     # Save test dataset tensors

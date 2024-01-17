@@ -179,7 +179,7 @@ class DatasetConsumer:
         print(json.dumps(self.attributes, indent=2))
         
 
-    def generate_straight_paths(self, num_paths, path_length_n=20):
+    def generate_straight_paths(self, num_paths, path_length_n=5):
         """
         Generate straight paths in the rx_positions array.
 
@@ -361,25 +361,29 @@ class DatasetConsumer:
         return interleaved
         
 # PLOTTING RESULTS TO CHECK
-d = DatasetConsumer('dataset_generation/dataset_0_5m_spacing.h5')
+d = DatasetConsumer('./machine_learning/data/dataset_0_5m_spacing.h5')
 # d = DatasetConsumer('older_ver/dataset.h5')
 
+straight_paths = d.generate_straight_paths(3)
+path_interleaved = d.paths_to_dataset_interleaved(straight_paths)
+print(path_interleaved.shape) # should be 1x256, but for every point. So 1x20x256
+print(path_interleaved) 
 #paths_curved = d.generate_curved_paths(70)
 #curve_pos = d.paths_to_dataset_positions(paths_curved)
 
-paths_curved_1, paths_curved_2 = d.generate_left_right_curves(10)
-curve_1_pos = d.paths_to_dataset_positions(paths_curved_1)
-curve_2_pos = d.paths_to_dataset_positions(paths_curved_2)
+# paths_curved_1, paths_curved_2 = d.generate_left_right_curves(10)
+# curve_1_pos = d.paths_to_dataset_positions(paths_curved_1)
+# curve_2_pos = d.paths_to_dataset_positions(paths_curved_2)
 
-# print(pathsC2.shape)
-# print(curve_pos.shape)
+# # print(pathsC2.shape)
+# # print(curve_pos.shape)
 
-plt.title("Positions")
+# plt.title("Positions")
 
-for i in range(10):
-    plt.plot(curve_1_pos[i, 0, :], curve_1_pos[i, 1, :],color="blue")
-    plt.plot(curve_2_pos[i, 0, :], curve_2_pos[i, 1, :],color="green")
-plt.show()
+# for i in range(10):
+#     plt.plot(curve_1_pos[i, 0, :], curve_1_pos[i, 1, :],color="blue")
+#     plt.plot(curve_2_pos[i, 0, :], curve_2_pos[i, 1, :],color="green")
+# plt.show()
 
 # for i in range(10):
 #     fig = plt.figure()
