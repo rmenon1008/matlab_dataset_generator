@@ -279,7 +279,7 @@ class DatasetConsumer:
         csi_phases = np.swapaxes(csi_phases, 1, 2)
         return csi_phases
 ###    
-    def paths_to_dataset_pathloss_only(self, path_indices):
+    def paths_to_dataset_path_loss_only(self, path_indices):
         """
         Generate a torch dataset from the given path indices
         Shape: (num_paths, path_length_n, 128)
@@ -291,6 +291,42 @@ class DatasetConsumer:
         cprint.info(f'self.ray_path_losses.shape {self.ray_path_losses.T.shape}')
         return ray_path_losses
 ###   
+### this function will identify the number of paths based on when the path_loss goes to 0
+    def get_num_paths(self, path_indices):
+        # check = [[0, 1, 2, 3, 4]]
+        # path_loss = self.paths_to_dataset_path_loss_only(check)
+        path_loss = self.paths_to_dataset_path_loss_only(path_indices)
+        col = row = depth = total_rays = 0
+        # print(path_loss.shape)
+        num_rays_on_paths = []
+        # iterate through the number of paths
+        for i in path_loss:
+            col+= 1
+            # iterate through the points in the path
+            for j in i:
+                row += 1
+                # iterate through the rays of path loss at each point
+                for k in j:
+                    # print(k)
+                    if(k == 0): # rays of path loss is 0
+                        depth -= 1
+                        print(col)
+                        print(row)
+                        print(depth)
+                        print('-----')
+                        total_rays += depth # add the number of rays found so far to the total_rays
+                        num_rays_on_paths.append(depth) # add the number of rays on this path to keep track
+                        break
+                    depth += 1
+                depth = 0 # reset rays count for the next point
+            row = 0 # reset the number of points for the next path
+
+        print("#### TOTAL RAYS ON THIS PATH ####")
+        print(total_rays)
+        print("#### RAYS PER PATH ###")
+        print(num_rays_on_paths)
+        return path_loss
+    
     def paths_to_dataset_rays_aoas(self, path_indices):
         """
         Generate a torch dataset from the given path indices
@@ -448,24 +484,24 @@ class DatasetConsumer:
         cprint.warn(f'interleaved_all.shape {interleaved_all.shape}')
         return interleaved_all
  ###   
-    def paths_to_dataset_interleaved_w_path_loss(self, path_indices):
-        """
-        Generate a torch dataset from the given path indices
-        Shape: (num_paths, path_length_n, 256)
-        """
-        # Get the magnitude and phase data
-        csi_mags = self.paths_to_dataset_mag_only(path_indices)
-        path_loss = self.paths_to_dataset_pathloss_only(path_indices)
+    # def paths_to_dataset_interleaved_w_path_loss(self, path_indices):
+    #     """
+    #     Generate a torch dataset from the given path indices
+    #     Shape: (num_paths, path_length_n, 256)
+    #     """
+    #     # Get the magnitude and phase data
+    #     csi_mags = self.paths_to_dataset_mag_only(path_indices)
+    #     path_loss = self.paths_to_dataset_pathloss_only(path_indices)
 
-        # Create a new array to hold the interleaved data
-        num_paths, path_length_n, _ = csi_mags.shape
-        interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
+    #     # Create a new array to hold the interleaved data
+    #     num_paths, path_length_n, _ = csi_mags.shape
+    #     interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
 
-        # Fill the new array with alternating slices from the two original arrays
-        interleaved[..., ::2] = csi_mags
-        interleaved[..., 1::2] = path_loss
+    #     # Fill the new array with alternating slices from the two original arrays
+    #     interleaved[..., ::2] = csi_mags
+    #     interleaved[..., 1::2] = path_loss
 
-        return interleaved  
+    #     return interleaved  
 ###
     def create_left_center_right_paths(self, path_indices, terminal_length=1):
         """
@@ -540,12 +576,27 @@ class DatasetConsumer:
 
         return (left_paths, center_paths, right_paths)
     
-# DATASET = 'older_ver/dataset_0_5m_spacing.h5'
-# d = DatasetConsumer(DATASET)
+DATASET = './machine_learning/data/dataset_0_5m_spacing.h5'
+d = DatasetConsumer(DATASET)
 # d.print_info()
 
 # # Start with curved paths
 # paths = d.generate_curved_paths(200, path_length_n=20)
+
+paths = d.generate_straight_paths(1)
+print(paths.shape)
+# print(paths)
+# mags = d.paths_to_dataset_mag_only(paths)
+# print(mags)
+num_rays = d.get_num_paths(paths)
+# print(num_rays)
+# print("######################")
+
+# print(num_paths[0][1])
+
+
+# print(d.paths_to_dataset_mag_only(paths).shape)
+
 
 # # Create left, center, and right paths
 # left_paths, center_paths, right_paths = d.create_left_center_right_paths(paths, terminal_length=10)
@@ -561,3 +612,4 @@ class DatasetConsumer:
 #     plt.plot(right_dataset[i, :, -1], right_dataset[i, :, -2])
 #     plt.plot(center_dataset[i, :, -1], center_dataset[i, :, -2])
 # plt.show()
+
