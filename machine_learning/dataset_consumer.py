@@ -292,53 +292,16 @@ class DatasetConsumer:
         return ray_path_losses
 ###   
 ### this function will identify the number of paths based on when the path_loss goes to 0
-    def get_num_paths(self, path_indices):
+    def get_num_rays(self, path_indices):
         check = [[0, 1, 2]]
         path_loss = self.paths_to_dataset_path_loss_only(check)
         # path_loss = self.paths_to_dataset_path_loss_only(path_indices)
-        print(path_loss.shape)
-
-        # num_rays_per_path = np.argmax(path_loss<=0, axis=2)
-        # print(num_rays_per_path)
-        # total_rays = np.sum(num_rays_per_path)
-
-        total_rays = np.sum(np.argmax(path_loss<=0, axis=2) - 1)
-
-        # print(num_rays_per_path)
-
-        # col = row = depth = total_rays = 0
-        # print(path_loss.shape)
-        num_rays_on_paths = []
-
-        # GOAL: find where the number of rays of path loss is 0
-        
-
-        # # iterate through the number of paths
-        # for i in path_loss:
-        #     col+= 1
-        #     # iterate through the points in the path
-        #     for j in i:
-        #         row += 1
-        #         # iterate through the rays of path loss at each point
-        #         for k in j:
-        #             # print(k)
-        #             if(k == 0): # rays of path loss is 0
-        #                 depth -= 1
-        #                 print(col)
-        #                 print(row)
-        #                 print(depth)
-        #                 print('-----')
-        #                 total_rays += depth # add the number of rays found so far to the total_rays
-        #                 num_rays_on_paths.append(depth) # add the number of rays on this path to keep track
-        #                 break
-        #             depth += 1
-        #         depth = 0 # reset rays count for the next point
-        #     row = 0 # reset the number of points for the next path
+        print(path_loss.shape) 
+        # Get one less than the number of rays where path_loss is first 0, then sum the total rays in each path
+        total_rays = np.sum(np.argmax(path_loss<=0, axis=2) - 1) 
 
         print("#### TOTAL RAYS ON THIS PATH ####")
         print(total_rays)
-        # print("#### RAYS PER PATH ###")
-        # print(num_rays_on_paths)
         return path_loss
     
     def paths_to_dataset_rays_aoas(self, path_indices):
@@ -602,7 +565,7 @@ print(paths.shape)
 # print(paths)
 # mags = d.paths_to_dataset_mag_only(paths)
 # print(mags)
-num_rays = d.get_num_paths(paths)
+num_rays = d.get_num_rays(paths)
 # print(num_rays)
 # print("######################")
 
