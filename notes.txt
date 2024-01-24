@@ -1,0 +1,8 @@
+
+
+
+Things to do:
+
+1. I am not comparing apples to apples. Need to check metrics with unscaled data
+2. 
+

@@ -17,26 +17,28 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 from dataset_consumer import DatasetConsumer
+
 from utils import watts_to_dbm, get_scaler, dbm_to_watts
 
 np.set_printoptions(threshold=sys.maxsize)
 
+
 # for hidden_size in [8, 16, 32, 64, 128]:
-for scaler_type in ['quantiletransformer-gaussian']: #'minmax', 'power_yeo-johnson', 'quantiletransformer-gaussian', 'quantiletransformer-uniform'
+for scaler_type in ['quantiletransformer-gaussian']: #['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'quantiletransformer-uniform']:
     DEBUG = True
     TENSORBOARD = True
     SCALER = scaler_type
     SAVE_PATH = './machine_learning/models/model.pth'
-    NUM_PATHS = 50000
-    PATH_LENGTH = 100
-    NUM_PREDICTIONS = 20
+    NUM_PATHS = 10000
+    PATH_LENGTH = 200
+    NUM_PREDICTIONS = 2
     FREQ_BINS = 128
-    NUM_FUTURE_STEPS = 0
+    NUM_FUTURE_STEPS = 100
 
     # Hyperparameters
-    batch_size = int(NUM_PATHS / 5) #10000
+    batch_size = 2000
     shuffle = True
-    input_size = 256 # Same as FREQ_BINS * 2 (mag and phase)
+    input_size = 128 # Same as FREQ_BINS
     hidden_size = 64
     num_layers = 5
     output_size = 128
@@ -53,49 +55,55 @@ for scaler_type in ['quantiletransformer-gaussian']: #'minmax', 'power_yeo-johns
                     'dropout_prob' : dropout,
                     'num_pred' : NUM_PREDICTIONS}
 
-    DATASET = 'dataset_0_5m_spacing.h5'
-    d = DatasetConsumer(DATASET)
-    d.print_info()
+    # Come up with fake dataset
+    T = 20 # width of the wave
+    x = np.empty((NUM_PATHS, PATH_LENGTH), np.float32) # instantiate empty array
+    x[:] = np.arange(PATH_LENGTH) + np.random.randint(-4*T, 4*T, NUM_PATHS).reshape(NUM_PATHS,1)
+    y = np.sin(x/1.0/T).astype(np.float32)
+    # Repeat across freq
+    y = np.repeat(y[:, :, np.newaxis], FREQ_BINS, axis=2)
+    # Add noise
+    for i in range(y.shape[0]):
+        # line = np.repeat(np.random.rand(1,FREQ_BINS), PATH_LENGTH, axis=0) * 0.1
+        scale = 0.01
+        sign = np.random.choice([-1, 1])
+        m = np.random.rand() * sign
+        b = np.random.rand()
 
-    # Scale mag data
-    d.csi_mags = watts_to_dbm(d.csi_mags) # Convert to dBm
-    scaler = get_scaler(SCALER)
-    cprint.ok(f'Scaler: {scaler}')
-    scaler.fit(d.csi_mags.T)
-    d.csi_mags = d.scale(scaler.transform, d.csi_mags.T).T
+        line = (m * np.arange(FREQ_BINS) + sign * b) * scale
+        line = np.expand_dims(line, axis=0)
+        line = np.repeat(line, PATH_LENGTH, axis=0)
+        y[i] += line
 
-    # Scale phase data
-    d.csi_phases = d.unwrap(d.csi_phases)
-    scaler_phase = get_scaler('minmax')
-    d.csi_phases = d.scale(scaler_phase.fit_transform, d.csi_phases)
+    # for i in range(y.shape[0]):
+    #     plt.plot(x[i,:], y[i,:,i], marker='.')
+    #     plt.grid(True)
+    #     plt.show()
+    
+    # for i in range(5):
+    #     plt.plot(np.arange(FREQ_BINS), y[0,i,:], marker='.')
+    #     plt.grid(True)
+    #     plt.show()
+    # print('NEW')
+    # for i in range(5):
+    #     plt.plot(np.arange(FREQ_BINS), y[1,i,:], marker='.')
+    #     plt.grid(True)
+    #     plt.show()
 
-    # Find Paths
-    paths = d.generate_straight_paths(NUM_PATHS, PATH_LENGTH)
-    dataset_mag = d.paths_to_dataset_mag_only(paths)
-    dataset_phase = d.paths_to_dataset_phase_only(paths)
-    dataset_positions = d.paths_to_dataset_positions(paths)
+    dataset_mag = torch.from_numpy(y)
 
-    # Interleave mag and phase
-    dataset_interleaved = d.paths_to_dataset_interleaved(paths)
-
-    # Convert 'split_sequences' to a PyTorch tensor
-    dataset_interleaved = torch.from_numpy(dataset_interleaved)
-
+    print(dataset_mag)
     # Split dataset into train, val and test
-    X_train, X_test, y_train, y_test = train_test_split(dataset_interleaved[:,:sequence_length,:], 
-                                                        dataset_interleaved[:,sequence_length:(sequence_length + NUM_PREDICTIONS),:].squeeze(), 
+    X_train, X_test, y_train, y_test = train_test_split(dataset_mag[:,:sequence_length,:], 
+                                                        dataset_mag[:,sequence_length:(sequence_length + NUM_PREDICTIONS),:].squeeze(), 
                                                         train_size = 0.85, 
                                                         shuffle=False)
     X_train, X_val, y_train, y_val = train_test_split(X_train, 
                                                       y_train, 
                                                       train_size = 0.8, 
                                                       shuffle=False)
-    
-    
-    # Remove phase for target dataset
-    y_train = y_train[:,:,0::2]
-    y_test = y_test[:,:,0::2]
-    y_val = y_val[:,:,0::2]
+
+    # Dataset
     train = TensorDataset(X_train, y_train)
     validate = TensorDataset(X_val, y_val)
     test = TensorDataset(X_test, y_test)
@@ -126,7 +134,7 @@ for scaler_type in ['quantiletransformer-gaussian']: #'minmax', 'power_yeo-johns
     }
     current = datetime.datetime.now()
     if TENSORBOARD:
-        writer = SummaryWriter(f"runs_interleaved/{model_type}_{num_epochs}_{num_layers}_{hidden_size}_{learning_rate}_{dropout}_{NUM_PATHS}_{batch_size}_{SCALER}_{current.month}-{current.day}-{current.hour}:{current.minute}")
+        writer = SummaryWriter(f"mock_runs/{model_type}_{num_epochs}_{num_layers}_{hidden_size}_{learning_rate}_{dropout}_{NUM_PATHS}_{batch_size}_{SCALER}_{current.month}-{current.day}-{current.hour}:{current.minute}")
         writer.add_custom_scalars(layout)
 
     # Create a simple RNN model
@@ -174,8 +182,8 @@ for scaler_type in ['quantiletransformer-gaussian']: #'minmax', 'power_yeo-johns
 
                 # Create dataframe
                 df_result = pd.DataFrame({
-                    'value': scaler.inverse_transform(targets.reshape(-1,128)).flatten(), #targets.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already
-                    'prediction': scaler.inverse_transform(outputs.reshape(-1,128)).flatten() #outputs.flatten()
+                    'value': targets.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already
+                    'prediction': outputs.flatten()
                 })
 
                 # Calcuate metrics
@@ -222,6 +230,16 @@ for scaler_type in ['quantiletransformer-gaussian']: #'minmax', 'power_yeo-johns
     # Optionally, calculate and print other evaluation metrics if needed
     cprint.info(f"Average Test Loss: {average_test_loss:.4f}")
 
+    # Create dataframe
+    df_result = pd.DataFrame({
+        'value': y_test.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already
+        'prediction': predictions[0].flatten()
+    })
+
+    # Calcuate metrics
+    result_metrics = calculate_metrics(df_result)
+    cprint.info(f'Results: {result_metrics}')
+
 
     if DEBUG:
         # Sanity check
@@ -229,72 +247,50 @@ for scaler_type in ['quantiletransformer-gaussian']: #'minmax', 'power_yeo-johns
             # To use the trained model for prediction, you can pass new sequences to the model:
             rand = torch.randint(0, X_test.shape[0], (1,))
             new_input = X_test[rand,:]
-            cprint.ok(f'new_input: {new_input.shape}')
-            input_mag = new_input[:,:,0::2]
-            input_descaled_log = scaler.inverse_transform(input_mag.squeeze().detach().numpy())
-            input_descaled_linear = dbm_to_watts(input_descaled_log)
             ground_truth = y_test[rand,:]
-            ground_truth_log = scaler.inverse_transform(ground_truth.squeeze())
-            ground_truth_linear = dbm_to_watts(ground_truth_log)
 
             # Prediction
             prediction = model(new_input.to(torch.float32), future=NUM_FUTURE_STEPS)
-            prediction_log = scaler.inverse_transform(prediction.squeeze().detach().numpy())
-            prediction_linear = dbm_to_watts(prediction_log)
+            new_input = new_input.squeeze().detach().numpy()
             # Graphs
             fig, axs = plt.subplots(11, figsize=(10,10))
             plt.subplots_adjust(hspace=1.25)
-            axs[0].plot(input_descaled_linear[4,:])
+            axs[0].plot(new_input[4,:])
             axs[0].set_title("CSI Reading 5")
-            axs[1].plot(input_descaled_linear[5,:])
+            axs[1].plot(new_input[5,:])
             axs[1].set_title("CSI Reading 6")
-            axs[2].plot(input_descaled_linear[6,:])
+            axs[2].plot(new_input[6,:])
             axs[2].set_title("CSI Reading 7")
-            axs[3].plot(input_descaled_linear[7,:])
+            axs[3].plot(new_input[7,:])
             axs[3].set_title("CSI Reading 8")
-            axs[4].plot(input_descaled_linear[8,:])
+            axs[4].plot(new_input[8,:])
             axs[4].set_title("CSI Reading 9")
-            # axs[5].plot(ground_truth.squeeze())
-            # axs[5].set_title("Ground Truth Scaled")
-            # axs[6].plot(ground_truth_log.squeeze())
-            # axs[6].set_title("Ground Truth Log")
-            # axs[7].plot(ground_truth_linear.squeeze())
-            # axs[7].set_title("Ground Truth Linear")
-            # axs[8].plot(prediction.detach().numpy().squeeze())
-            # axs[8].set_title("Prediction")
-            # axs[9].plot(prediction_log.squeeze())
-            # axs[9].set_title("Prediction Log")
-            # axs[10].plot(prediction_linear.squeeze())
-            # axs[10].ticklabel_format(useOffset=False)
-            # axs[10].set_title("Prediction Linear")
-            axs[5].plot(ground_truth_linear.squeeze()[-1,:])
+            axs[5].plot(ground_truth.squeeze()[-1,:])
             axs[5].set_title("Ground Truth")
-            axs[6].plot(prediction_linear.squeeze()[-1,:])
+            axs[6].plot(prediction.detach().numpy().squeeze()[-1,:])
             axs[6].set_title("Prediction")
             time_pred = np.arange(PATH_LENGTH - NUM_PREDICTIONS, PATH_LENGTH, 1)
-            cprint.ok(f'time_pred: {time_pred.shape}')
             time_future = np.arange(PATH_LENGTH, PATH_LENGTH + NUM_FUTURE_STEPS, 1)
-            cprint.ok(f'prediction_linear: {prediction_linear.squeeze()[NUM_PREDICTIONS:,0].shape}')
-            cprint.warn(f'ground_truth {ground_truth.squeeze().shape}')
-            axs[7].plot(np.concatenate((new_input.squeeze()[:,0],ground_truth.squeeze()[:,0])))
+            axs[7].plot(new_input[:,0])
             axs[7].plot(time_pred, prediction.detach().numpy().squeeze()[:NUM_PREDICTIONS,0], marker='.',  color='orange')
             axs[7].plot(time_future, prediction.detach().numpy().squeeze()[NUM_PREDICTIONS:,0], marker='.', color='red')
             axs[7].set_title("Frequency 0")
-            axs[8].plot(np.concatenate((new_input.squeeze()[:,32],ground_truth.squeeze()[:,32])))
+            axs[8].plot(new_input[:,32])
             axs[8].plot(time_pred, prediction.detach().numpy().squeeze()[:NUM_PREDICTIONS,32], marker='.',  color='orange')
             axs[8].plot(time_future, prediction.detach().numpy().squeeze()[NUM_PREDICTIONS:,32], marker='.', color='red')
             axs[8].set_title("Frequency 32")
-            axs[9].plot(np.concatenate((new_input.squeeze()[:,64],ground_truth.squeeze()[:,64])))
+            axs[9].plot(new_input[:,64])
             axs[9].plot(time_pred, prediction.detach().numpy().squeeze()[:NUM_PREDICTIONS,64], marker='.',  color='orange')
             axs[9].plot(time_future, prediction.detach().numpy().squeeze()[NUM_PREDICTIONS:,64], marker='.', color='red')
             axs[9].set_title("Frequency 64")
-            axs[10].plot(np.concatenate((new_input.squeeze()[:,127],ground_truth.squeeze()[:,127])))
+            axs[10].plot(new_input[:,127])
             axs[10].plot(time_pred, prediction.detach().numpy().squeeze()[:NUM_PREDICTIONS,127], marker='.',  color='orange')
             axs[10].plot(time_future, prediction.detach().numpy().squeeze()[NUM_PREDICTIONS:,127], marker='.', color='red')
             axs[10].set_title("Frequency 127")
             # plt.show()
             if TENSORBOARD: writer.add_figure(f'Comparison {i}', fig, global_step=0)
             plt.close(fig)
+            
 
     # Close tensorboard writer
     if TENSORBOARD: writer.close()

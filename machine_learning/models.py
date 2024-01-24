@@ -4,11 +4,12 @@ import torch.nn as nn
 from torch import nn, Tensor
 import positional_encoder as pe
 import torch.nn.functional as F
+from cprint import *
 
 
 # Define a simple RNN class
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob, num_pred=1):
         super(RNN, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -29,7 +30,7 @@ class RNN(nn.Module):
     
 # Define a simple LSTM class
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob, num_pred=1):
         super(LSTM, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -50,14 +51,15 @@ class LSTM(nn.Module):
     
 # Define a simple GRU class
 class GRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_prob, num_pred=1):
         super(GRU, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_prob)
         self.fc = nn.Linear(hidden_size, output_size)
+        self.num_pred = num_pred
 
-    def forward(self, x):
+    def forward(self, x, future = 0):
         # Initialize hidden state with zeros
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         
@@ -65,7 +67,28 @@ class GRU(nn.Module):
         out, _ = self.gru(x, h0)
         
         # Reshape the output for the fully connected layer
-        out = self.fc(out[:, -1, :])
+        out = self.fc(out[:, out.shape[1] - self.num_pred: , :]) #This worked great for training to predict multiple points
+
+        # out = self.fc(out)
+        
+        # Predict the future
+        for i in range(future):
+            if i == 0:
+                # cprint.err(f'out.shape: {out.shape}')
+                # cprint.ok(f'x.shape: {x.shape}')
+                input = torch.cat((x[:, self.num_pred: , :], out[:, :, :]), dim=1)
+            else:
+                # cprint.err(f'out.shape: {out.shape}')
+                input = torch.cat((input[:, out.shape[1]:, :], out[:, :, :]), dim=1)
+            
+            # cprint.warn(f'input.shape: {input.shape}')
+            # Generate the next prediction
+            next_out, _ = self.gru(input, h0)
+            next_out = self.fc(next_out[:, -1, :]).unsqueeze(1)
+            # cprint.warn(f'next_out.shape: {next_out.shape}')
+            # Concatenate the next prediction to the outputs
+            out = torch.cat((out, next_out), dim=1)
+            # cprint.warn(f'i {i} out.shape: {out.shape}')
         return out
     
 
