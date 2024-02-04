@@ -28,16 +28,20 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     DEBUG = True
     SCALER = scaler_type
     SAVE_PATH = './machine_learning/models/model.pth'
-    NUM_PATHS = 100
+    NUM_PATHS = 100 #50000
+    PATH_LENGTH = 100
+    NUM_PREDICTIONS = 20
+    FREQ_BINS = 128
+    NUM_FUTURE_STEPS = 2
 
     # Hyperparameters
     batch_size = 20
     shuffle = True
-    input_size = 128
+    input_size = 129   # change to 129?
     hidden_size = 64
     num_layers = 5
     output_size = 128
-    sequence_length = 9
+    sequence_length = 9 #PATH_LENGTH - NUM_PREDICTIONS 
     learning_rate = 0.005
     dropout = .2
     num_epochs = 100
@@ -53,23 +57,28 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     d = DatasetConsumer(DATASET)
     # d.print_info()
 
-    # Scale mag data
+    # Scale mag data within the dataset, before getting randomized paths
     d.csi_mags = watts_to_dbm(d.csi_mags) # Convert to dBm
     scaler = get_scaler('minmax')
     scaler.fit(d.csi_mags.T)
     d.csi_mags = d.scale(scaler.transform, d.csi_mags.T).T
 
     # Find paths
-    d.csi_phases = d.unwrap(d.csi_phases)
+    # d.csi_phases = d.unwrap(d.csi_phases)
     paths = d.generate_straight_paths(NUM_PATHS, 10)
-    dataset_mag = d.paths_to_dataset_mag_only(paths)
-    dataset_phase = d.paths_to_dataset_phase_only(paths)
-    dataset_positions = d.paths_to_dataset_positions(paths)
+    num_rays = d.get_num_rays(paths)
+    dataset_mag_rays = d.paths_to_dataset_mag_plus_rays(paths) # will use the scaled mag data and attach the number of ray hits
 
-    # # Convert 'split_sequences' to a PyTorch tensor
-    dataset_mag = torch.from_numpy(dataset_mag)
+    print(dataset_mag_rays.shape)
+
+    # magnitudes and paths:
+    # dataset_phase = d.paths_to_dataset_phase_only(paths)
+    # dataset_positions = d.paths_to_dataset_positions(paths)
+
+    # # Convert 'split_sequences' to a PyTorch tenssor
+    dataset_mag_rays = torch.from_numpy(dataset_mag_rays)
     # Split dataset into train, val and test
-    X_train, X_test, y_train, y_test = train_test_split(dataset_mag[:,:9,:], dataset_mag[:,9:10,:].squeeze(), train_size = 0.85, shuffle=False)
+    X_train, X_test, y_train, y_test = train_test_split(dataset_mag_rays[:,:9,:], dataset_mag_rays[:,9:10,:].squeeze(), train_size = 0.85, shuffle=False)
     X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, train_size = 0.8, shuffle=False)
 
 
@@ -129,6 +138,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         model.train()
         for batch in train_dataloader:
             sequences, targets = batch
+            targets = targets[:,:128] # removing the last row of number of ray hits for target values
+
             outputs = model(sequences.float())
             loss = criterion(outputs, targets.float())
             
@@ -144,6 +155,7 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         with torch.no_grad():
             for batch in validate_dataloader:
                 sequences, targets = batch
+                targets = targets[:,:128] # removing the last row of number of ray hits for target values
                 outputs = model(sequences.float())
                 val_loss = criterion(outputs, targets.float())
                 running_val_loss += val_loss.item()
@@ -151,8 +163,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
 
                 # Create dataframe
                 df_result = pd.DataFrame({
-                    'value': targets.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already
-                    'prediction': outputs.flatten()
+                    'value': targets.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already, 
+                    'prediction': outputs.flatten() # scaler.inverse_transform(outputs.reshape(-1,128)).flatten()
                 })
 
                 # Calcuate metrics
@@ -183,6 +195,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     with torch.no_grad():
         for batch in test_dataloader:  # Assuming you have a DataLoader for the test dataset
             sequences, targets = batch  # Get input sequences and their targets
+            targets = targets[:,:128] # removing the last row of number of ray hits for target values
+
             cprint.info(f'sequences {sequences.shape}')
             outputs = model(sequences.float())  # Make predictions
             predictions.append(outputs)
@@ -200,8 +214,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
 
     # Create dataframe
     df_result = pd.DataFrame({
-        'value': y_test.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already
-        'prediction': predictions[0].flatten()
+        'value': y_test.flatten(),  #'value': scaler.inverse_transform(y_test.reshape(-1,128)).flatten(), flatten() is used to convert the arrays to 1D if they're not already
+        'prediction': predictions[0].flatten() #'prediction': scaler.inverse_transform(predictions[0].reshape(-1,128)).flatten()
     })
 
     # Calcuate metrics
@@ -222,8 +236,8 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
             ground_truth_linear = dbm_to_watts(ground_truth_log)
 
             # Prediction
-            prediction = model(new_input.to(torch.float32))
-            prediction_log = scaler.inverse_transform(prediction.detach().numpy())
+            prediction = model(new_input.to(torch.float32)) # model(new_input.to(torch.float32), future=NUM_FUTURE_STEPS)
+            prediction_log = scaler.inverse_transform(prediction.detach().numpy()) # scaler.inverse_transform(prediction.squeeze.detach().numpy())
             prediction_linear = dbm_to_watts(prediction_log)
             
             # Graphs

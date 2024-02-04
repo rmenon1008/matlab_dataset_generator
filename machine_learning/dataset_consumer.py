@@ -282,34 +282,61 @@ class DatasetConsumer:
     def paths_to_dataset_path_loss_only(self, path_indices):
         """
         Generate a torch dataset from the given path indices
-        Shape: (num_paths, path_length_n, 128)
+        Shape: (num_paths, path_length_n, 100)
         """
         # Use the indices to grab the CSI path lossdata for each point
         ray_path_losses = self.ray_path_losses[:, path_indices]
         ray_path_losses = np.swapaxes(ray_path_losses, 0, 1)
         ray_path_losses = np.swapaxes(ray_path_losses, 1, 2)
-        cprint.info(f'self.ray_path_losses.shape {self.ray_path_losses.T.shape}')
+        # cprint.info(f'self.ray_path_losses.shape {self.ray_path_losses.T.shape}')
         return ray_path_losses
 ###   
-### this function will identify the number of paths based on when the path_loss goes to 0
     def get_num_rays(self, path_indices):
-        check = [[0, 1, 2]]
-        path_loss = self.paths_to_dataset_path_loss_only(check)
-        # path_loss = self.paths_to_dataset_path_loss_only(path_indices)
-        print(path_loss.shape) 
-        # Get one less than the number of rays where path_loss is first 0, then sum the total rays in each path
-        total_rays = np.sum(np.argmax(path_loss<=0, axis=2) - 1) 
+        """
+        Returns the number of paths based on for each path provided by the path_indicies
+        Shape: (num_paths, path_length_n, 100)
+        """
+        # ## To check:
+        # check = [[0, 1, 2, 3], [0,1,2,3]]
+        # path_loss = self.paths_to_dataset_path_loss_only(check)
 
-        print("#### TOTAL RAYS ON THIS PATH ####")
-        print(total_rays)
-        return path_loss
+        path_loss = self.paths_to_dataset_path_loss_only(path_indices)
+
+        # Get the number of rays up until path_loss is first 0, then sum the total rays in each path (minus one to account for the added index 0)
+        num_rays_per_path = (np.argmax(path_loss<=0, axis=2, keepdims=True))
+        # total_rays = np.sum(num_rays_per_path) 
+        total_rays = np.sum(np.argmax(path_loss<=0, axis=2) - 1) 
+        # print("#### TOTAL RAYS ON THIS PATH ####")
+        # print(num_rays_per_path)
+        # print(total_rays)
+        return num_rays_per_path
+    
+    def paths_to_dataset_mag_plus_rays(self, path_indices):
+        """
+        Generate a torch dataset from the given path indices
+        Shape: (num_paths, path_length_n, 128)
+        """
+        # Use the indices to grab the CSI data for each point
+        csi_mags = self.csi_mags[:, path_indices]
+        csi_mags = np.swapaxes(csi_mags, 0, 1)
+        csi_mags = np.swapaxes(csi_mags, 1, 2)
+
+        num_rays = self.get_num_rays(path_indices)
+        # add the path for each path_indice, added to end of each path so dimension 
+        # becomes (num_paths,points, 129)
+        csi_mags_num_paths = np.concatenate((csi_mags, num_rays), axis=-1)
+        # print(csi_mags_num_paths.shape)
+        # print(csi_mags_num_paths[0, :, 128])
+
+        return csi_mags_num_paths
+    
     
     def paths_to_dataset_rays_aoas(self, path_indices):
         """
         Generate a torch dataset from the given path indices
         Shape: (num_paths, path_length_n, num_rays)
         """
-        # Use the indices to grab the positions for each point
+        # Use the indices to grasb the positions for each point
         cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
         return self.ray_aoas.T[path_indices, 0, :], self.ray_aoas.T[path_indices, 1, :]
     
@@ -560,12 +587,14 @@ d = DatasetConsumer(DATASET)
 # # Start with curved paths
 # paths = d.generate_curved_paths(200, path_length_n=20)
 
-paths = d.generate_straight_paths(1)
-print(paths.shape)
+# paths = d.generate_straight_paths(2)
+# print(paths.shape)
 # print(paths)
 # mags = d.paths_to_dataset_mag_only(paths)
+# mags_paths = d.paths_to_dataset_mag_plus_paths(paths)
 # print(mags)
-num_rays = d.get_num_rays(paths)
+# num_rays = d.get_num_rays(paths)
+# print(d.paths_to_dataset_mag_only(paths).shape)
 # print(num_rays)
 # print("######################")
 
