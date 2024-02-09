@@ -64,7 +64,6 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     d.csi_mags = d.scale(scaler.transform, d.csi_mags.T).T
 
     # Find paths
-    # d.csi_phases = d.unwrap(d.csi_phases)
     paths = d.generate_straight_paths(NUM_PATHS, 10)
     num_rays = d.get_num_rays(paths)
     dataset_mag_rays = d.paths_to_dataset_mag_plus_rays(paths) # will use the scaled mag data and attach the number of ray hits
@@ -86,6 +85,9 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     train = TensorDataset(X_train, y_train)
     validate = TensorDataset(X_val, y_val)
     test = TensorDataset(X_test, y_test)
+
+    # X_test = X_test[:,:,:128] # removing the last row of number of ray hits for target values
+    # y_test = y_test[:,:128]
 
     # Create a data loader
     train_dataloader = DataLoader(train, batch_size=batch_size, shuffle=shuffle)
@@ -214,7 +216,7 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
 
     # Create dataframe
     df_result = pd.DataFrame({
-        'value': y_test.flatten(),  #'value': scaler.inverse_transform(y_test.reshape(-1,128)).flatten(), flatten() is used to convert the arrays to 1D if they're not already
+        'value': y_test[:,:128].flatten(),  #'value': scaler.inverse_transform(y_test.reshape(-1,128)).flatten(), flatten() is used to convert the arrays to 1D if they're not already
         'prediction': predictions[0].flatten() #'prediction': scaler.inverse_transform(predictions[0].reshape(-1,128)).flatten()
     })
 
@@ -227,11 +229,15 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         # Sanity check
         for i in range(10):
             # To use the trained model for prediction, you can pass new sequences to the model:
+            print(X_test.shape[0])
             rand = torch.randint(0, X_test.shape[0], (1,))
             new_input = X_test[rand,:]
-            input_descaled_log = scaler.inverse_transform(new_input.squeeze().detach().numpy())
+            print(new_input.shape)
+
+            # For plotting on matplotlib
+            input_descaled_log = scaler.inverse_transform(new_input[:,:,:128].squeeze().detach().numpy())
             input_descaled_linear = dbm_to_watts(input_descaled_log)
-            ground_truth = y_test[rand,:]
+            ground_truth = y_test[rand,:128]
             ground_truth_log = scaler.inverse_transform(ground_truth)
             ground_truth_linear = dbm_to_watts(ground_truth_log)
 
