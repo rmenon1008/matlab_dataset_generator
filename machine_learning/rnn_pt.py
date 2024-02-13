@@ -28,7 +28,7 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     DEBUG = True
     SCALER = scaler_type
     SAVE_PATH = './machine_learning/models/model.pth'
-    NUM_PATHS = 100000
+    NUM_PATHS = 100 #100000
 
     # Hyperparameters
     batch_size = 20000
@@ -223,7 +223,10 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
 
             # Prediction
             prediction = model(new_input.to(torch.float32))
-            prediction_log = scaler.inverse_transform(prediction.detach().numpy())
+
+            cprint.info(f'pred: {prediction.shape}')
+
+            prediction_log = scaler.inverse_transform(prediction[0, :, :].detach().numpy())
             prediction_linear = dbm_to_watts(prediction_log)
             
             # Graphs

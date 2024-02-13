@@ -2,7 +2,7 @@ import datetime
 import h5py
 import numpy as np
 import pandas as pd
-from models_old import RNN, LSTM, GRU
+from models import RNN, LSTM, GRU
 import torch
 import torch.nn as nn
 from cprint import *
@@ -24,24 +24,25 @@ from utils import watts_to_dbm, get_scaler, dbm_to_watts
 
 
 # for hidden_size in [8, 16, 32, 64, 128]:
-for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'quantiletransformer-uniform']:
+for scaler_type in ['quantiletransformer-gaussian']: #['minmax', 'power_yeo-johnson', 'quantiletransformer-gaussian', 'quantiletransformer-uniform']:
     DEBUG = True
+    TENSORBOARD = True
     SCALER = scaler_type
     SAVE_PATH = './machine_learning/models/model.pth'
-    NUM_PATHS = 100 #50000
+    NUM_PATHS = 100
     PATH_LENGTH = 100
     NUM_PREDICTIONS = 20
     FREQ_BINS = 128
     NUM_FUTURE_STEPS = 2
 
     # Hyperparameters
-    batch_size = 20
+    batch_size = 10000
     shuffle = True
-    input_size = 129   # change to 129?
+    input_size = 129 # FREQUENCY + NUM HITS
     hidden_size = 64
     num_layers = 5
     output_size = 128
-    sequence_length = 9 #PATH_LENGTH - NUM_PREDICTIONS 
+    sequence_length = PATH_LENGTH - NUM_PREDICTIONS #9
     learning_rate = 0.005
     dropout = .2
     num_epochs = 100
@@ -51,43 +52,41 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
                     'hidden_size' : hidden_size,
                     'num_layers' : num_layers,
                     'output_size' : output_size,
-                    'dropout_prob' : dropout}
+                    'dropout_prob' : dropout,
+                    'num_pred' : NUM_PREDICTIONS} # this predictions value was added
 
     DATASET = './machine_learning/data/dataset_0_5m_spacing.h5'
     d = DatasetConsumer(DATASET)
-    # d.print_info()
+    d.print_info()
 
-    # Scale mag data within the dataset, before getting randomized paths
+    # Scale mag data
     d.csi_mags = watts_to_dbm(d.csi_mags) # Convert to dBm
-    scaler = get_scaler('minmax')
+    scaler = get_scaler(SCALER)
     scaler.fit(d.csi_mags.T)
     d.csi_mags = d.scale(scaler.transform, d.csi_mags.T).T
 
     # Find paths
-    paths = d.generate_straight_paths(NUM_PATHS, 10)
-    num_rays = d.get_num_rays(paths)
+    d.csi_phases = d.unwrap(d.csi_phases)
+    paths = d.generate_straight_paths(NUM_PATHS, PATH_LENGTH)
     dataset_mag_rays = d.paths_to_dataset_mag_plus_rays(paths) # will use the scaled mag data and attach the number of ray hits
 
-    print(dataset_mag_rays.shape)
 
-    # magnitudes and paths:
-    # dataset_phase = d.paths_to_dataset_phase_only(paths)
-    # dataset_positions = d.paths_to_dataset_positions(paths)
-
-    # # Convert 'split_sequences' to a PyTorch tenssor
+    # # Convert 'split_sequences' to a PyTorch tensor
     dataset_mag_rays = torch.from_numpy(dataset_mag_rays)
     # Split dataset into train, val and test
-    X_train, X_test, y_train, y_test = train_test_split(dataset_mag_rays[:,:9,:], dataset_mag_rays[:,9:10,:].squeeze(), train_size = 0.85, shuffle=False)
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, train_size = 0.8, shuffle=False)
-
+    X_train, X_test, y_train, y_test = train_test_split(dataset_mag_rays[:,:sequence_length,:], 
+                                                        dataset_mag_rays[:,sequence_length:(sequence_length + NUM_PREDICTIONS),:].squeeze(), 
+                                                        train_size = 0.85, 
+                                                        shuffle=False)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, 
+                                                      y_train, 
+                                                      train_size = 0.8, 
+                                                      shuffle=False)
 
     # Dataset
     train = TensorDataset(X_train, y_train)
     validate = TensorDataset(X_val, y_val)
     test = TensorDataset(X_test, y_test)
-
-    # X_test = X_test[:,:,:128] # removing the last row of number of ray hits for target values
-    # y_test = y_test[:,:128]
 
     # Create a data loader
     train_dataloader = DataLoader(train, batch_size=batch_size, shuffle=shuffle)
@@ -114,8 +113,9 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         },
     }
     current = datetime.datetime.now()
-    writer = SummaryWriter(f"runs/{model_type}_{num_epochs}_{num_layers}_{hidden_size}_{learning_rate}_{dropout}_{NUM_PATHS}_{batch_size}_{SCALER}_{current.month}-{current.day}-{current.hour}:{current.minute}")
-    writer.add_custom_scalars(layout)
+    if TENSORBOARD:
+        writer = SummaryWriter(f"runs/{model_type}_{num_epochs}_{num_layers}_{hidden_size}_{learning_rate}_{dropout}_{NUM_PATHS}_{batch_size}_{SCALER}_{current.month}-{current.day}-{current.hour}:{current.minute}")
+        writer.add_custom_scalars(layout)
 
     # Create a simple RNN model
     model = get_model(model_type, model_params)
@@ -140,8 +140,9 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         model.train()
         for batch in train_dataloader:
             sequences, targets = batch
-            targets = targets[:,:128] # removing the last row of number of ray hits for target values
-
+            print(targets.shape)
+            targets = targets[:,:,:128]
+            print(targets.shape)
             outputs = model(sequences.float())
             loss = criterion(outputs, targets.float())
             
@@ -150,37 +151,39 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
             optimizer.step()
 
             running_train_loss += loss.item()
-            writer.add_scalar("losses/running_train_loss", loss.item(), i)
+            if TENSORBOARD: writer.add_scalar("losses/running_train_loss", loss.item(), i)
             i += 1
 
         model.eval()
         with torch.no_grad():
             for batch in validate_dataloader:
                 sequences, targets = batch
-                targets = targets[:,:128] # removing the last row of number of ray hits for target values
+                targets = targets[:,:,:128] # removing last row of ray hits for target values
                 outputs = model(sequences.float())
                 val_loss = criterion(outputs, targets.float())
                 running_val_loss += val_loss.item()
-                writer.add_scalar("losses/running_val_loss", val_loss.item(), j)
+                if TENSORBOARD: writer.add_scalar("losses/running_val_loss", val_loss.item(), j)
 
                 # Create dataframe
                 df_result = pd.DataFrame({
-                    'value': targets.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already, 
-                    'prediction': outputs.flatten() # scaler.inverse_transform(outputs.reshape(-1,128)).flatten()
+                    'value': scaler.inverse_transform(targets.reshape(-1,128)).flatten(), #targets.flatten(),  # flatten() is used to convert the arrays to 1D if they're not already
+                    'prediction': scaler.inverse_transform(outputs.reshape(-1,128)).flatten() #outputs.flatten()
                 })
 
                 # Calcuate metrics
                 result_metrics = calculate_metrics(df_result)
-                writer.add_scalar("accuracy_val/mae", result_metrics['mae'], j)
-                writer.add_scalar("accuracy_val/rmse", result_metrics['rmse'], j)
-                writer.add_scalar("accuracy_val/r2", result_metrics['r2'], j)
+                if TENSORBOARD: 
+                    writer.add_scalar("accuracy_val/mae", result_metrics['mae'], j)
+                    writer.add_scalar("accuracy_val/rmse", result_metrics['rmse'], j)
+                    writer.add_scalar("accuracy_val/r2", result_metrics['r2'], j)
                 j += 1
+
 
         if epoch % 100 == 99:
             print(f'[{epoch + 1}, {num_epochs}] loss: {running_train_loss:.3f}')
             running_train_loss = 0.0
 
-        writer.add_scalar("learning_rate", optimizer.param_groups[0]['lr'], i)
+        if TENSORBOARD: writer.add_scalar("learning_rate", optimizer.param_groups[0]['lr'], i)
         scheduler.step(val_loss.item())
 
     # Save test dataset tensors
@@ -197,13 +200,11 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     with torch.no_grad():
         for batch in test_dataloader:  # Assuming you have a DataLoader for the test dataset
             sequences, targets = batch  # Get input sequences and their targets
-            targets = targets[:,:128] # removing the last row of number of ray hits for target values
-            print(targets.shape)
-            cprint.info(f'sequences {sequences.shape}')
+            targets = targets[:,:,:128]
             outputs = model(sequences.float())  # Make predictions
             predictions.append(outputs)
             loss = criterion(outputs, targets)  # Calculate the loss
-            writer.add_scalar("losses/test_loss", loss.item(), total_samples)
+            if TENSORBOARD: writer.add_scalar("losses/test_loss", loss.item(), total_samples)
             test_loss += loss.item()
             total_samples += 1
             print(f'total_samples {total_samples}')
@@ -215,9 +216,11 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
     cprint.info(f"Average Test Loss: {average_test_loss:.4f}")
 
     # Create dataframe
+    print(y_test.shape)
+
     df_result = pd.DataFrame({
-        'value': y_test[:,:128].flatten(),  #'value': scaler.inverse_transform(y_test.reshape(-1,128)).flatten(), flatten() is used to convert the arrays to 1D if they're not already
-        'prediction': predictions[0].flatten() #'prediction': scaler.inverse_transform(predictions[0].reshape(-1,128)).flatten()
+        'value': scaler.inverse_transform(y_test[:, :, :128].reshape(-1,128)).flatten(),  # flatten() is used to convert the arrays to 1D if they're not already
+        'prediction': scaler.inverse_transform(predictions[0].reshape(-1,128)).flatten()
     })
 
     # Calcuate metrics
@@ -229,25 +232,25 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
         # Sanity check
         for i in range(10):
             # To use the trained model for prediction, you can pass new sequences to the model:
-            print(X_test.shape[0])
             rand = torch.randint(0, X_test.shape[0], (1,))
             new_input = X_test[rand,:]
-            print(f"Input shape: {new_input.shape}")
+            cprint.ok(f'new_input: {new_input.shape}') 
 
-            # For plotting on matplotlib
+            # For plots 
             input_descaled_log = scaler.inverse_transform(new_input[:,:,:128].squeeze().detach().numpy())
             input_descaled_linear = dbm_to_watts(input_descaled_log)
-            ground_truth = y_test[rand,:128]
-            ground_truth_log = scaler.inverse_transform(ground_truth)
+            ground_truth = y_test[rand,:,:128]
+            print(ground_truth.shape)
+            ground_truth_log = scaler.inverse_transform(ground_truth.squeeze())
             ground_truth_linear = dbm_to_watts(ground_truth_log)
 
             # Prediction
-            prediction = model(new_input.to(torch.float32)) # model(new_input.to(torch.float32), future=NUM_FUTURE_STEPS)
-            
-            cprint.info(f'pred: {prediction.shape}')
+            print(f"Input shape: {new_input.shape}")
+            print(new_input.shape)
+            prediction = model(new_input.to(torch.float32), future=NUM_FUTURE_STEPS) # future=0 until this step, going into the prediction part of the model
+            print(f"Output shape: {prediction.shape}")
 
-
-            prediction_log = scaler.inverse_transform(prediction.detach().numpy()) # scaler.inverse_transform(prediction.squeeze.detach().numpy())
+            prediction_log = scaler.inverse_transform(prediction.squeeze().detach().numpy())
             prediction_linear = dbm_to_watts(prediction_log)
             
             # Graphs
@@ -263,25 +266,48 @@ for scaler_type in ['minmax', 'yeo-johnson', 'quantiletransformer-gaussian', 'qu
             axs[3].set_title("CSI Reading 8")
             axs[4].plot(input_descaled_linear[8,:])
             axs[4].set_title("CSI Reading 9")
-            axs[5].plot(ground_truth.squeeze())
-            axs[5].set_title("Ground Truth Scaled")
-            axs[6].plot(ground_truth_log.squeeze())
-            axs[6].set_title("Ground Truth Log")
-            axs[7].plot(ground_truth_linear.squeeze())
-            axs[7].set_title("Ground Truth Linear")
-            axs[8].plot(prediction.detach().numpy().squeeze())
-            axs[8].set_title("Prediction")
-            axs[9].plot(prediction_log.squeeze())
-            axs[9].set_title("Prediction Log")
-            axs[10].plot(prediction_linear.squeeze())
-            axs[10].ticklabel_format(useOffset=False)
-            axs[10].set_title("Prediction Linear")
+            # axs[5].plot(ground_truth.squeeze())
+            # axs[5].set_title("Ground Truth Scaled")
+            # axs[6].plot(ground_truth_log.squeeze())
+            # axs[6].set_title("Ground Truth Log")
+            # axs[7].plot(ground_truth_linear.squeeze())
+            # axs[7].set_title("Ground Truth Linear")
+            # axs[8].plot(prediction.detach().numpy().squeeze())
+            # axs[8].set_title("Prediction")
+            # axs[9].plot(prediction_log.squeeze())
+            # axs[9].set_title("Prediction Log")
+            # axs[10].plot(prediction_linear.squeeze())
+            # axs[10].ticklabel_format(useOffset=False)
+            # axs[10].set_title("Prediction Linear")
+            axs[5].plot(ground_truth_linear.squeeze()[-1,:])
+            axs[5].set_title("Ground Truth")
+            axs[6].plot(prediction_linear.squeeze()[-1,:])
+            axs[6].set_title("Prediction")
+            time_pred = np.arange(PATH_LENGTH - NUM_PREDICTIONS, PATH_LENGTH, 1)
+            time_future = np.arange(PATH_LENGTH, PATH_LENGTH + NUM_FUTURE_STEPS, 1)
+            axs[7].plot(np.concatenate((new_input.squeeze()[:,0],ground_truth.squeeze()[:,0])))
+            axs[7].plot(time_pred, prediction.detach().numpy().squeeze()[:NUM_PREDICTIONS,0], marker='.',  color='orange')
+            axs[7].plot(time_future, prediction.detach().numpy().squeeze()[NUM_PREDICTIONS:,0], marker='.', color='red')
+            axs[7].set_title("Frequency 0 Scaled")
+            axs[8].plot(np.concatenate((input_descaled_linear[:,0],ground_truth_linear[:,0])))
+            axs[8].plot(time_pred, prediction_linear[:NUM_PREDICTIONS,0], marker='.',  color='orange')
+            axs[8].plot(time_future, prediction_linear[NUM_PREDICTIONS:,0], marker='.', color='red')
+            axs[8].set_title("Frequency 0 Descaled")
+            axs[9].plot(np.concatenate((new_input.squeeze()[:,64],ground_truth.squeeze()[:,64])))
+            axs[9].plot(time_pred, prediction.detach().numpy().squeeze()[:NUM_PREDICTIONS,64], marker='.',  color='orange')
+            axs[9].plot(time_future, prediction.detach().numpy().squeeze()[NUM_PREDICTIONS:,64], marker='.', color='red')
+            axs[9].set_title("Frequency 64")
+            axs[10].plot(np.concatenate((new_input.squeeze()[:,127],ground_truth.squeeze()[:,127])))
+            axs[10].plot(time_pred, prediction.detach().numpy().squeeze()[:NUM_PREDICTIONS,127], marker='.',  color='orange')
+            axs[10].plot(time_future, prediction.detach().numpy().squeeze()[NUM_PREDICTIONS:,127], marker='.', color='red')
+            axs[10].set_title("Frequency 127")
             # plt.show()
-            writer.add_figure(f'Comparison {i}', fig, global_step=0)
+            if TENSORBOARD: writer.add_figure(f'Comparison {i}', fig, global_step=0)
             plt.close(fig)
             
+
     # Close tensorboard writer
-    writer.close()
+    if TENSORBOARD: writer.close()
     # Save model
     torch.save(model.state_dict(), SAVE_PATH)
 
