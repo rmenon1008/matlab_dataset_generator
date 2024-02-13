@@ -24,7 +24,7 @@ from utils import watts_to_dbm, get_scaler, dbm_to_watts
 
 
 # for hidden_size in [8, 16, 32, 64, 128]:
-for scaler_type in ['quantiletransformer-gaussian']: #['minmax', 'power_yeo-johnson', 'quantiletransformer-gaussian', 'quantiletransformer-uniform']:
+for scaler_type in ['quantiletransformer-gaussian', 'minmax', 'power_yeo-johnson', 'quantiletransformer-gaussian', 'quantiletransformer-uniform']:
     DEBUG = True
     TENSORBOARD = True
     SCALER = scaler_type

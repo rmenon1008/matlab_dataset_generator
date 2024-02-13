@@ -80,10 +80,20 @@ class GRU(nn.Module):
             if i == 0:
                 # cprint.err(f'out.shape: {out.shape}')
                 # cprint.ok(f'x.shape: {x.shape}')
-                input = torch.cat((x[:, self.num_pred: , :], out[:, :, :]), dim=1)
+                if(x.shape[2] > 128):
+                    zeros = torch.zeros((out.shape[0], out.shape[1], x.shape[2] - out.shape[2]))
+                    out_incr_size = torch.cat((out, zeros), dim=2)
+                    input = torch.cat((x[:, self.num_pred: , :], out_incr_size[:, :, :]), dim=1) # combine the inital input and the output
+                else: 
+                    input = torch.cat((x[:, self.num_pred: , :], out[:, :, :]), dim=1)
             else:
                 # cprint.err(f'out.shape: {out.shape}')
-                input = torch.cat((input[:, out.shape[1]:, :], out[:, :, :]), dim=1)
+                if(x.shape[2] > 128):
+                    zeros = torch.zeros((out.shape[0], out.shape[1], x.shape[2] - out.shape[2]))
+                    out_incr_size = torch.cat((out, zeros), dim=2)
+                    input = torch.cat((x[:, self.num_pred: , :], out_incr_size[:, :, :]), dim=1) # combine the inital input and the output
+                else: 
+                    input = torch.cat((input[:, out.shape[1]:, :], out[:, :, :]), dim=1) # for following predictions, combine the last output and the new input
             
             # cprint.warn(f'input.shape: {input.shape}')
             # Generate the next prediction
