@@ -69,7 +69,7 @@ for scaler_type in ['minmax', 'quantiletransformer-gaussian', 'quantiletransform
     # Find paths
     d.csi_phases = d.unwrap(d.csi_phases)
     paths = d.generate_straight_paths(NUM_PATHS, PATH_LENGTH)
-    dataset_mag_rays = d.paths_to_dataset_mag_plus_rays(paths) # will use the scaled mag data and attach the number of ray hits
+    dataset_mag_rays = d.paths_to_dataset_mag_plus_rays(paths) # will use the scaled mag data and attach the number of ray hits, scaled by 1/100
 
 
     # # Convert 'split_sequences' to a PyTorch tensor

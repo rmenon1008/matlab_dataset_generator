@@ -304,14 +304,10 @@ class DatasetConsumer:
 
         # Get the number of rays up until path_loss is first 0, then sum the total rays in each path (minus one to account for the added index 0)
         num_rays_per_path = (np.argmax(path_loss<=0, axis=2, keepdims=True))
-        # total_rays = np.sum(num_rays_per_path) 
-        total_rays = np.sum(np.argmax(path_loss<=0, axis=2) - 1) 
-        # print("#### TOTAL RAYS ON THIS PATH ####")
-        # print(num_rays_per_path)
-        # print(total_rays)
+        # total_rays = np.sum(np.argmax(path_loss<=0, axis=2)) 
         return num_rays_per_path
     
-    def paths_to_dataset_mag_plus_rays(self, path_indices):
+    def paths_to_dataset_mag_plus_rays(self, path_indices,scale=True):
         """
         Generate a torch dataset from the given path indices
         Shape: (num_paths, path_length_n, 128)
@@ -322,14 +318,16 @@ class DatasetConsumer:
         csi_mags = np.swapaxes(csi_mags, 1, 2)
 
         num_rays = self.get_num_rays(path_indices)
+
+        # print(num_rays[0,:,:])
+        if(scale):
+            num_rays = num_rays / 100
+        # print(num_rays[0,:,:])
+
         # add the path for each path_indice, added to end of each path so dimension 
         # becomes (num_paths,points, 129)
         csi_mags_num_paths = np.concatenate((csi_mags, num_rays), axis=-1)
-        # print(csi_mags_num_paths.shape)
-        # print(csi_mags_num_paths[0, :, 128])
-
         return csi_mags_num_paths
-    
     
     def paths_to_dataset_rays_aoas(self, path_indices):
         """
@@ -338,11 +336,47 @@ class DatasetConsumer:
         """
         # Use the indices to grasb the positions for each point
         cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
+
         return self.ray_aoas.T[path_indices, 0, :], self.ray_aoas.T[path_indices, 1, :]
     
+    def aoas_avg(self, path_indices):
+        """
+        Returns the number of paths based on for each path provided by the path_indicies
+        Shape: (num_paths, path_length_n, 100)
+        """
+
+        # ## To check:
+        # check = [[0, 1, 2, 3], [0,1,2,3]]
+        # path_loss = self.paths_to_dataset_path_loss_only(check)
+
+        aoa_azimuths = self.paths_to_dataset_rays_aoas(path_indices)[0]
+        print(aoa_azimuths[0,0,:])
+
+        # Get the number of rays up until path_loss is first 0, then sum the total rays in each path (minus one to account for the added index 0)
+        # num_rays_per_path = (np.argmax(path_loss<=0, axis=2, keepdims=True))
+        # total_rays = np.sum(np.argmax(path_loss<=0, axis=2)) 
+        avg_zero_aoa_azimuths = np.mean(aoa_azimuths, axis=2)
+        print("avg_zero_aoa_azimuths")
+        print(avg_zero_aoa_azimuths)
+
+        
+        first_zero_index = np.argmax(aoa_azimuths == 0, axis=2)
+        print(first_zero_index)
+        
+        # Replace the 0 values with NaN to exclude it from the mean calculation
+        aoa_azimuths_nan = np.where(aoa_azimuths == 0, np.nan, aoa_azimuths) 
+
+        # Calculate the mean along axis 2 excluding the zeros (set to NaN)
+        avg_aoa_azimuths = np.nanmean(aoa_azimuths_nan, axis=2)
+        
+        print("avg_aoa_azimuths")
+        print(avg_aoa_azimuths)
+
+        return avg_aoa_azimuths 
+
     def paths_to_dataset_rays_aoas_trig(self, path_indices, pad = 0):
         """
-        Generate a torch dataset from the given path indices
+        Generate a torch dataset from the given path indices 
         """
         # Use the indices to grab the positions for each point
         cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
@@ -358,8 +392,39 @@ class DatasetConsumer:
         cprint.info(f'azimuth_sin.shape {azimuth_sin.shape}')
         cprint.info(f'elevation_cos.shape {elevation_cos.shape}')
         cprint.info(f'elevation_sin.shape {elevation_sin.shape}')
+        print(np.array([azimuth_cos[path_indices, :], azimuth_sin[path_indices, :], elevation_cos[path_indices, :], elevation_sin[path_indices, :]]).shape)
         return np.array([azimuth_cos[path_indices, :], azimuth_sin[path_indices, :], elevation_cos[path_indices, :], elevation_sin[path_indices, :]])
+    
+    def paths_to_dataset_mag_rays_aoas(self, path_indices,scale=True):
+        """
+        Generate a torch dataset from the given path indices to contain
+        the mags, number of rays, and aoa average 
+        Shape: (num_paths, path_length_n, 128)
+        """
+        # Use the indices to grab the CSI data for each point
+        csi_mags = self.csi_mags[:, path_indices]
+        csi_mags = np.swapaxes(csi_mags, 0, 1)
+        csi_mags = np.swapaxes(csi_mags, 1, 2)
+        
+        print(csi_mags.shape)
 
+        num_rays = self.get_num_rays(path_indices)
+        if(scale):
+            num_rays = num_rays / 100
+
+        print(num_rays.shape)
+
+        aoa_azimuths = d.aoas_avg(path_indices)[0] # returns a tuple (azimuths, elevations), so taking just azimuths
+
+        print("fsdfsd")
+        print(aoa_azimuths.shape)
+
+        # add the path for each path_indice, added to end of each path so dimension 
+        # becomes (num_paths,points, 129)
+        csi_mags_num_paths = np.concatenate((csi_mags, num_rays), axis=-1)
+        # csi_mags_num_paths = np.concatenate((aoa_azimuths, csi_mags_num_paths), axis=-1)
+        return csi_mags_num_paths   
+    
     def paths_to_dataset_positions(self, path_indices):
         """
         Generate a torch dataset from the given path indices
@@ -585,18 +650,22 @@ d = DatasetConsumer(DATASET)
 # d.print_info()
 
 # # Start with curved paths
-# paths = d.generate_curved_paths(200, path_length_n=20)
+paths = d.generate_curved_paths(200, path_length_n=20)
 
-# paths = d.generate_straight_paths(2)
+paths = d.generate_straight_paths(1)
 # print(paths.shape)
 # print(paths)
 # mags = d.paths_to_dataset_mag_only(paths)
-# mags_paths = d.paths_to_dataset_mag_plus_paths(paths)
+# mags_paths = d.paths_to_dataset_mag_plus_rays(paths)
 # print(mags)
 # num_rays = d.get_num_rays(paths)
 # print(d.paths_to_dataset_mag_only(paths).shape)
 # print(num_rays)
 # print("######################")
+
+aoa = d.aoas_avg(paths) # returns a tuple (azimuths, elevations)
+
+# print(aoa.shape)
 
 # print(num_paths[0][1])
 
