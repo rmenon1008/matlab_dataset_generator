@@ -335,7 +335,7 @@ class DatasetConsumer:
         Shape: (num_paths, path_length_n, num_rays)
         """
         # Use the indices to grasb the positions for each point
-        cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
+        # cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
 
         return self.ray_aoas.T[path_indices, 0, :], self.ray_aoas.T[path_indices, 1, :]
     
@@ -362,7 +362,7 @@ class DatasetConsumer:
         Generate a torch dataset from the given path indices 
         """
         # Use the indices to grab the positions for each point
-        cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
+        # cprint.info(f'self.ray_aoas.shape {self.ray_aoas.T.shape}')
         azimuth_cos = np.cos(self.ray_aoas.T[:, 0, :] * 2* np.pi / 360)
         azimuth_cos = np.pad(azimuth_cos, ((0,0), (0,pad)))
         azimuth_sin = np.sin(self.ray_aoas.T[:, 0, :] * 2* np.pi / 360)
@@ -471,36 +471,6 @@ class DatasetConsumer:
         # Add the positions to the end of the array
         concatenated = np.concatenate((interleaved, positions), axis=2)
         return concatenated
-    
-    
-
-    
-    # def paths_to_dataset_interleaved_padded(self, path_indices):
-    #     """
-    #     Generate a numpy dataset from the given path indices
-    #     Shape: (num_paths, path_length_n, 384)
-    #     """
-    #     # Get the magnitude, phase, and rays_aoas_trig data
-    #     csi_mags = self.paths_to_dataset_mag_only(path_indices)
-    #     csi_phases = self.paths_to_dataset_phase_only(path_indices)
-    #     rays_aoas_trig = self.paths_to_dataset_rays_aoas_trig(path_indices)
-    #     cprint.warn(f'csi_mags.shape {csi_mags.shape}')
-    #     cprint.warn(f'rays_aoas_trig.shape {rays_aoas_trig.shape}')
-    #     # Find the maximum length
-    #     max_length = max(csi_mags.shape[-1], csi_phases.shape[-1], rays_aoas_trig.shape[-1])
-
-    #     # Pad the arrays to match the maximum length
-    #     csi_mags = np.pad(csi_mags, ((0,0), (0,0), (0, max_length - csi_mags.shape[-1])))
-    #     csi_phases = np.pad(csi_phases, ((0,0), (0,0), (0, max_length - csi_phases.shape[-1])))
-    #     rays_aoas_trig = np.pad(rays_aoas_trig, ((0,0), (0,0), (0, max_length - rays_aoas_trig.shape[-1])))
-
-    #     # Interleave the arrays
-    #     interleaved = np.empty((csi_mags.shape[0], csi_mags.shape[1], 3 * max_length))
-    #     interleaved[..., ::3] = csi_mags
-    #     interleaved[..., 1::3] = csi_phases
-    #     interleaved[..., 2::3] = rays_aoas_trig
-
-    #     return interleaved
 
     def paths_to_dataset_interleaved_w_rays(self, path_indices):
         """
@@ -529,26 +499,7 @@ class DatasetConsumer:
         interleaved_all[..., 556:656] = rays_aoas_trig[3,:,:,:]
         cprint.warn(f'interleaved_all.shape {interleaved_all.shape}')
         return interleaved_all
- ###   
-    # def paths_to_dataset_interleaved_w_path_loss(self, path_indices):
-    #     """
-    #     Generate a torch dataset from the given path indices
-    #     Shape: (num_paths, path_length_n, 256)
-    #     """
-    #     # Get the magnitude and phase data
-    #     csi_mags = self.paths_to_dataset_mag_only(path_indices)
-    #     path_loss = self.paths_to_dataset_pathloss_only(path_indices)
-
-    #     # Create a new array to hold the interleaved data
-    #     num_paths, path_length_n, _ = csi_mags.shape
-    #     interleaved = np.empty((num_paths, path_length_n, 256), dtype=csi_mags.dtype)
-
-    #     # Fill the new array with alternating slices from the two original arrays
-    #     interleaved[..., ::2] = csi_mags
-    #     interleaved[..., 1::2] = path_loss
-
-    #     return interleaved  
-###
+ 
     def create_left_center_right_paths(self, path_indices, terminal_length=1):
         """
         Each path is replaced with 3 paths. Each has the same starting number of points as the original path.
@@ -626,42 +577,84 @@ DATASET = './machine_learning/data/dataset_0_5m_spacing.h5'
 d = DatasetConsumer(DATASET)
 # d.print_info()
 
-# # Start with curved paths
-paths = d.generate_curved_paths(200, path_length_n=20)
+mags = d.csi_mags
+aoas = d.ray_aoas
+mags_fromloss = d.ray_path_losses
 
-paths = d.generate_straight_paths(1)
-# print(paths.shape)
-# print(paths)
-# mags = d.paths_to_dataset_mag_only(paths)
-# mags_paths = d.paths_to_dataset_mag_plus_rays(paths)
-# print(mags)
-# num_rays = d.get_num_rays(paths)
-# print(d.paths_to_dataset_mag_only(paths).shape)
-# print(num_rays)
-# print("######################")
+# Graph 1 - Plotting the first set of rays magnitude & aoa ray pairs for positions 0 to 10 
+# EXAMPLE: mags_1 = mags[0,:10] # first set of rays, magnitudes at first 10 positions
+mags_1 = mags_fromloss[0, :10]
+print(mags_1)
 
-aoa_ray_mag = d.paths_to_dataset_mag_rays_aoas(paths) # returns a tuple (azimuths, elevations)
+aoas_1 = np.deg2rad(aoas[0,0,:10]) # first set of rays, azimuth, first 10 positions
+print(np.rad2deg(aoas_1))
 
-# print(aoa.shape)
+# Plot in polar coordinates, changing min and max of radial coordinates based on magnitudes
+fig, ax = plt.subplots(subplot_kw=dict(projection="polar"))
+scatter = ax.scatter(aoas_1, mags_1, c=mags_1, cmap='viridis') # plotting the polar coordinates as a scatter plot
+ax.set_rmin(np.min(mags_1))
+ax.set_rmax(np.max(mags_1) + 1)
 
-# print(num_paths[0][1])
+# Add colorbar for reference - purple to yellow, purple is lower magnitude
+cbar = plt.colorbar(scatter, ax=ax, label='Magnitude Color Reference')
+plt.savefig('plot_mags_aoas/channel_1_first10poses_fig_1.png')
+
+# Graph 2 - Plotting aoa for first 10 rays with path loss as the magnitude? - check
+
+# mags_1 = mags[0,:10] # first channel, magnitudes at first 10 positions
+# print(mags_1)
+
+# aoas_1 = np.deg2rad(aoas[0,0,:10]) # first set of rays, azimuth, first 10 positions
+# print(aoas_1)
+
+# # Plot in polar coordinates
+# fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+# scatter = ax.scatter(aoas_1, mags_1, c=mags_1, cmap='viridis') # plotting the polar coordinates as a scatter plot
+
+# # Add colorbar for reference - purple to yellow, purple is lower magnitude
+# cbar = plt.colorbar(scatter, ax=ax, label='Magnitude Color Reference')
+# plt.savefig('plot_mags_aoas/channel_1_fig_1.png')
 
 
-# print(d.paths_to_dataset_mag_only(paths).shape)
+# Graph 3 - Plotting first magnitude channel with magnitude & aoa ray pairs for first 10 random positions
+# pos_rand = np.random.choice(range(40401), 10)
+# mags_2 = mags[0,pos_rand] # first channel, magnitudes at first 10 positions
+
+# print(mags_2)
+
+# aoas_2 = np.deg2rad(aoas[0,0,pos_rand]) # first set of rays, azimuth, first 10 positions
+# print(np.rad2deg(aoas_2))
+
+# # Plot in polar coordinates
+# fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+# scatter = ax.scatter(aoas_2, mags_2, c=mags_2, cmap='viridis') # plotting the polar coordinates as a scatter plot
+
+# # Add colorbar for reference - purple to yellow, purple is lower magnitude
+# cbar = plt.colorbar(scatter, ax=ax, label='Magnitude Color Reference')
+# plt.savefig('plot_mags_aoas/channel_1_rand10poses_fig_2.png')
 
 
-# # Create left, center, and right paths
-# left_paths, center_paths, right_paths = d.create_left_center_right_paths(paths, terminal_length=10)
+# Graph 4 - Generate straight path and plot the first 10 points - so these would be 10 different positions
+    # Use first 10 angle of attacks at  each of those 10 different positions
+    # Use just one of the 128 channels to depict the magnitude at that position? 
+        # Are those magnitudes from different rays? How are the CSI magnitudes collected? 
 
-# # Create datasets from the paths
-# left_dataset = d.paths_to_dataset_interleaved_w_relative_positions(left_paths)
-# center_dataset = d.paths_to_dataset_interleaved_w_relative_positions(center_paths)
-# right_dataset = d.paths_to_dataset_interleaved_w_relative_positions(right_paths)
 
-# # Plot the first 50 paths' relative positions
-# for i in range(50):
-#     plt.plot(left_dataset[i, :, -1], left_dataset[i, :, -2])
-#     plt.plot(right_dataset[i, :, -1], right_dataset[i, :, -2])
-#     plt.plot(center_dataset[i, :, -1], center_dataset[i, :, -2])
+# Graph 4 - Plotting aoa for first 10 rays with path loss as the magnitude? - check
+
+# mags_1 = mags[0,:10] # first channel, magnitudes at first 10 positions
+# print(mags_1)
+
+# aoas_1 = np.deg2rad(aoas[0,0,:10]) # first set of rays, azimuth, first 10 positions
+# print(aoas_1)
+
+# # Plot in polar coordinates
+# fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+# scatter = ax.scatter(aoas_1, mags_1, c=mags_1, cmap='viridis') # plotting the polar coordinates as a scatter plot
+
+# # Add colorbar for reference - purple to yellow, purple is lower magnitude
+# cbar = plt.colorbar(scatter, ax=ax, label='Magnitude Color Reference')
+# plt.savefig('plot_mags_aoas/channel_1_fig_1.png')
+
 # plt.show()
 
