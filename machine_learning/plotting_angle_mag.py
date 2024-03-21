@@ -74,14 +74,48 @@ for n in range(num_points):
     scatter = ax[n].scatter(aoas_3[0,n,:], mags_3[0,n,:], c=mags_3[0,n,:], cmap=random_colormap) # plotting the polar coordinates as a scatter plot
     # Add colorbar for reference beside each point graph
     cbar = plt.colorbar(scatter, ax=ax[n], label='Magnitude Color Reference (Point %d)'% n, shrink=0.8)
-    ax.set_rmin(n, np.min(mags_3[0,n,:]))
+    # ax.set_rmin(n, np.min(mags_3[0,n,:]))
     # ax.set_rmax(1, n, np.max(mags_3[0,n,:]) + 1)
     # ax.set_rlim(1, n, np.min(mags_3), np.max(mags_3) + 1)
 # adding padding between graphs
 plt.subplots_adjust(wspace = 1)
 plt.savefig('plot_mags_aoas/straight_line_aoas+mags_per_point.png')
 
+# Graph 4 - Generate plot with points at each end
+mags_botleft = mags_fromloss[:10,1]
+mags_topright = mags_fromloss[:10,40400]
+mags_topleft = mags_fromloss[:10,16198]
+mags_botright = mags_fromloss[:10,29808]
 
+print(mags_topright.shape)
+
+aoas_botleft = np.deg2rad(aoas[:10,0,1]) # first set of rays, azimuth, first 10 rays on bottom left position
+aoas_topright = np.deg2rad(aoas[:10,0,40400]) # first set of rays, azimuth, first 10 on top right position
+aoas_topleft = np.deg2rad(aoas[:10,0,16198])
+aoas_botright = np.deg2rad(aoas[:10,0,29808])
+
+
+print(aoas_topright.shape)
+
+# Plot in polar coordinates, changing min and max of radial coordinates based on magnitude range
+fig, ax = plt.subplots(subplot_kw=dict(projection="polar"))
+scatter_botleft = ax.scatter(aoas_botleft, mags_botleft, c=mags_botleft, cmap='Reds') # plotting the polar coordinates as a scatter plot
+scatter_topright = ax.scatter(aoas_topright, mags_topright, c=mags_topright, cmap='Purples') # plotting the polar coordinates as a scatter plot
+scatter_topleft = ax.scatter(aoas_topleft, mags_topleft, c=mags_topleft, cmap='Greens') # plotting the polar coordinates as a scatter plot
+scatter_botright = ax.scatter(aoas_botright, mags_botright, c=mags_botright, cmap='Oranges') # plotting the polar coordinates as a scatter plot
+
+ax.set_rmin(np.min(mags_fromloss))
+ax.set_rmax(np.max(mags_fromloss) + 1)
+
+# Add colorbar for reference - purple to yellow, purple is lower magnitude
+cbar1 = plt.colorbar(scatter_botleft, ax=ax, label='Bottom Left Magnitudes')
+cbar2 = plt.colorbar(scatter_topright, ax=ax, label='Top Right Magnitudes')
+cbar3 = plt.colorbar(scatter_topleft, ax=ax, label='Top Left Magnitudes')
+cbar4 = plt.colorbar(scatter_botright, ax=ax, label='Bottom Right Magnitudes')
+
+plt.subplots_adjust(wspace = 1)
+
+plt.savefig('plot_mags_aoas/10_rays_at_each_corner_fig_4.png')
 
 
 
